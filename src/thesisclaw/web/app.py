@@ -26,6 +26,57 @@ def root() -> dict[str, str]:
     }
 
 
+@app.get("/papers", response_class=HTMLResponse)
+@app.get("/papers/", response_class=HTMLResponse)
+def list_paper_pages() -> str:
+    """Gallery listing of all generated educational paper breakdowns."""
+    from pathlib import Path
+
+    papers_dir = Path("site/public/papers")
+    paper_files = list(papers_dir.glob("*.html")) if papers_dir.exists() else []
+
+    cards_html = ""
+    for p in sorted(paper_files, reverse=True):
+        arxiv_id = p.stem
+        cards_html += f"""
+        <div style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="font-size: 0.85rem; color: #64748b; font-weight: 600; text-transform: uppercase;">arXiv ID: {arxiv_id}</div>
+            <h3 style="margin: 8px 0 12px 0;"><a href="/papers/{arxiv_id}" style="color: #2563eb; text-decoration: none;">View Educational Breakdown &rarr;</a></h3>
+            <p style="margin: 0; font-size: 0.875rem; color: #475569;">Interactive ELI5 summary, jargon buster, and Raspberry Pi 5 experiment.</p>
+        </div>
+        """
+
+    if not cards_html:
+        cards_html = """
+        <div style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 32px; text-align: center; color: #64748b;">
+            <p style="font-size: 1.1rem; margin-bottom: 8px;">No papers evaluated yet.</p>
+            <p style="font-size: 0.9rem; margin: 0;">Send an arXiv link to your Telegram bot or run <code>uv run python -m thesisclaw.jobs.backfill</code> in your terminal!</p>
+        </div>
+        """
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ThesisClaw — Evaluated Papers Gallery</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; margin: 0; padding: 40px 16px; color: #0f172a; }}
+        .container {{ max-width: 800px; margin: auto; }}
+        a:hover {{ text-decoration: underline; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <p><a href="/notes" style="color:#2563eb; text-decoration:none;">&larr; Human Approval Gate</a></p>
+        <h1 style="margin-top:0;">📚 Evaluated Literature Gallery</h1>
+        <p style="color:#64748b; margin-bottom: 24px;">All academic papers analyzed and translated into simple teaching breakdowns for your thesis.</p>
+        {cards_html}
+    </div>
+</body>
+</html>
+"""
+
+
 @app.get("/papers/{arxiv_id}", response_class=HTMLResponse)
 def view_paper_page(arxiv_id: str) -> str:
     """Serve the interactive educational webpage for an evaluated paper."""

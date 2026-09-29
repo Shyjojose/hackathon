@@ -123,8 +123,23 @@ class TelegramBotClient:
                 if res.get("pathfinder"):
                     reply_parts.append(
                         f"🧪 **Next Experiment:**\n{res['pathfinder'].next_experiment}\n\n"
-                        f"📝 **Citable APA Paragraph:**\n_{res['pathfinder'].citable_paragraph}_"
+                        f"📝 **Citable APA Paragraph:**\n_{res['pathfinder'].citable_paragraph}_\n"
                     )
+
+                # Generate interactive educational webpage and forward link
+                try:
+                    from thesisclaw.site_builder.pages import build_paper_page
+
+                    build_paper_page(paper, v, res.get("pathfinder"))
+                    domain = (
+                        settings.mcp_tunnel_domain.strip()
+                        if settings.mcp_tunnel_domain.strip()
+                        else f"http://{settings.mcp_host}:{settings.mcp_port}"
+                    )
+                    page_url = f"{domain}/papers/{paper.arxiv_id}" if domain.startswith("http") else f"https://{domain}/papers/{paper.arxiv_id}"
+                    reply_parts.append(f"🌐 **Interactive Educational Page:**\n{page_url}")
+                except Exception as page_exc:  # noqa: BLE001
+                    logger.warning("Could not generate paper webpage: %s", page_exc)
 
                 await self.send_message(chat_id, "\n".join(reply_parts))
                 return "Paper evaluated."

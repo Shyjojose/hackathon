@@ -26,6 +26,21 @@ def root() -> dict[str, str]:
     }
 
 
+@app.get("/papers/{arxiv_id}", response_class=HTMLResponse)
+def view_paper_page(arxiv_id: str) -> str:
+    """Serve the interactive educational webpage for an evaluated paper."""
+    from pathlib import Path
+
+    page_path = Path("site/public/papers") / f"{arxiv_id}.html"
+    if page_path.exists():
+        return page_path.read_text(encoding="utf-8")
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Educational breakdown for paper arXiv:{arxiv_id} has not been generated yet.",
+    )
+
+
 @app.get("/stats")
 def get_stats() -> dict[str, Any]:
     """Return live paper count and verdict statistics."""

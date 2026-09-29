@@ -141,10 +141,16 @@ async def run_telegram_polling(poll_interval: float = 2.0) -> None:
     """Long-polling runner for receiving updates without webhooks."""
     bot = TelegramBotClient()
     if not bot.token:
-        logger.warning("TELEGRAM_BOT_TOKEN not set. Polling cannot start.")
+        logger.error("TELEGRAM_BOT_TOKEN not configured in .env.")
+        print("\n❌ Error: TELEGRAM_BOT_TOKEN is not set in .env.")
+        print("Please add your Telegram bot token from @BotFather into .env and try again.\n")
         return
 
-    logger.info("Starting Telegram long polling...")
+    logger.info("Starting Telegram long polling for ThesisClaw...")
+    print("\n🤖 ThesisClaw Telegram Bot is ACTIVE and listening!")
+    print(f"Allowlisted User IDs: {settings.get_allowed_telegram_ids() or 'ALL (Open Dev Mode)'}")
+    print("Press Ctrl+C to stop.\n")
+
     offset = 0
     async with httpx.AsyncClient(timeout=30.0) as client:
         while True:
@@ -161,3 +167,15 @@ async def run_telegram_polling(poll_interval: float = 2.0) -> None:
             except Exception as exc:  # noqa: BLE001
                 logger.error("Polling error: %s", exc)
                 await asyncio.sleep(poll_interval)
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    try:
+        asyncio.run(run_telegram_polling())
+    except KeyboardInterrupt:
+        print("\nTelegram bot stopped by user.")
+
+
+if __name__ == "__main__":
+    main()

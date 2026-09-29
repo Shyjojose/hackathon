@@ -13,13 +13,14 @@
 - [x] **Milestone 8: MCP Server (SDK v2) & ESP32-S3 Voice Bridge** (Completed: commit `fc34af1`)
 - [x] **Milestone 9: Final Quality Gate & Test Suite Pass** (Completed: commit `78733f0`)
 - [x] **Feature: Interactive Educational Webpages & Telegram Link Forwarding** (Completed: commit `ee4708d`)
+- [x] **Feature: Educational Literature Gallery `/papers` & `/papers/`** (Completed: commit `4a7067c`, `adadd39`)
 
 ---
 
 ## Final Verification Summary
-- **Tests**: 40 unit tests passing across all packages (`tests/unit/`).
+- **Tests**: 41 unit tests passing across all packages (`tests/unit/`).
 - **Linter**: `ruff check` 100% clean with zero warnings or errors.
-- **Educational Pages**:
+- **Educational Pages & Gallery**:
   - `site/public/papers/{arxiv_id}.html` generates modern card UI with ELI5 breakdown, Jargon Buster, and Next Experiment.
-  - Web route: `GET /papers/{arxiv_id}` serves the page live.
+  - Web routes: `GET /papers` & `GET /papers/` list all evaluated papers in a gallery; `GET /papers/{arxiv_id}` serves the individual interactive breakdowns.
   - Telegram bot automatically includes the clickable link in reply messages.

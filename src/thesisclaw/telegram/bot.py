@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
+import anyio
 import httpx
 
 from thesisclaw.agent.orchestrator import ThesisOrchestrator
@@ -21,18 +23,26 @@ class TelegramBotClient:
         self.base_url = f"https://api.telegram.org/bot{self.token}"
         self.orchestrator = ThesisOrchestrator()
 
-    async def send_message(self, chat_id: int | str, text: str, parse_mode: str = "Markdown") -> dict[str, Any]:
-        """Send message to a telegram chat."""
+    async def send_message(
+        self,
+        chat_id: int | str,
+        text: str,
+        parse_mode: str = "Markdown",
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Send message to a telegram chat with optional inline keyboard."""
         if not self.token:
             logger.warning("TELEGRAM_BOT_TOKEN not configured; message dropped.")
             return {}
 
         url = f"{self.base_url}/sendMessage"
-        payload = {
+        payload: dict[str, Any] = {
             "chat_id": chat_id,
             "text": text,
             "parse_mode": parse_mode,
         }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, json=payload)
@@ -40,6 +50,28 @@ class TelegramBotClient:
                 # Fallback to plain text if markdown parsing fails
                 payload["parse_mode"] = ""
                 resp = await client.post(url, json=payload)
+            return resp.json() if resp.status_code == 200 else {}
+
+    async def send_document(
+        self,
+        chat_id: int | str,
+        file_path: str | Any,
+        caption: str = "",
+    ) -> dict[str, Any]:
+        """Send a local file (e.g. interactive educational index.html) to a telegram chat."""
+        path = Path(file_path)
+        if not path.exists():
+            logger.warning("File %s does not exist; cannot send document.", file_path)
+            return {}
+
+        url = f"{self.base_url}/sendDocument"
+        async with await anyio.open_file(path, "rb") as f:
+            file_bytes = await f.read()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            files = {"document": (path.name, file_bytes, "text/html")}
+            data = {"chat_id": str(chat_id), "caption": caption}
+            resp = await client.post(url, data=data, files=files)
             return resp.json() if resp.status_code == 200 else {}
 
     def is_user_allowed(self, user_id: int) -> bool:
@@ -127,21 +159,52 @@ class TelegramBotClient:
                     )
 
                 # Generate interactive educational webpage and forward link
+                reply_markup = None
+                gen_file = None
                 try:
                     from thesisclaw.site_builder.pages import build_paper_page
 
-                    build_paper_page(paper, v, res.get("pathfinder"))
+                    gen_file = build_paper_page(paper, v, res.get("pathfinder"))
                     domain = (
                         settings.mcp_tunnel_domain.strip()
                         if settings.mcp_tunnel_domain.strip()
                         else f"http://{settings.mcp_host}:{settings.mcp_port}"
                     )
                     page_url = f"{domain}/papers/{paper.arxiv_id}" if domain.startswith("http") else f"https://{domain}/papers/{paper.arxiv_id}"
-                    reply_parts.append(f"🌐 **Interactive Educational Page:**\n{page_url}")
+                    reply_parts.append(f"🌐 **Interactive 3-Tab Breakdown:**\n{page_url}")
+
+                    # Build inline keyboard for Telegram
+                    if page_url.startswith("https://"):
+                        reply_markup = {
+                            "inline_keyboard": [
+                                [
+                                    {"text": "📖 Open Breakdown (In-App)", "web_app": {"url": page_url}},
+                                    {"text": "🌐 Browser", "url": page_url},
+                                ]
+                            ]
+                        }
+                    else:
+                        reply_markup = {
+                            "inline_keyboard": [
+                                [{"text": "🌐 Open in Browser", "url": page_url}]
+                            ]
+                        }
                 except Exception as page_exc:  # noqa: BLE001
                     logger.warning("Could not generate paper webpage: %s", page_exc)
 
-                await self.send_message(chat_id, "\n".join(reply_parts))
+                await self.send_message(chat_id, "\n".join(reply_parts), reply_markup=reply_markup)
+
+                # Send offline document attachment directly to chat
+                if gen_file and Path(gen_file).exists():
+                    try:
+                        await self.send_document(
+                            chat_id,
+                            gen_file,
+                            caption=f"📄 Offline 3-Tab Breakdown (arXiv:{paper.arxiv_id}) with Flowchart & Alpine.js.",
+                        )
+                    except Exception as doc_exc:  # noqa: BLE001
+                        logger.debug("Failed sending document attachment: %s", doc_exc)
+
                 return "Paper evaluated."
             except Exception as exc:  # noqa: BLE001
                 await self.send_message(chat_id, f"❌ Evaluation failed: {exc}")

@@ -27,4 +27,7 @@ checkpoints/
 *.swp
 
 # ── Generated paper pages ──────────────────────────────────────────────────
+site/public/papers/*/*.html
 site/public/papers/*.html
+!site/public/papers/assets/
+!site/public/papers/assets/**

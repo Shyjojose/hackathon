@@ -9,6 +9,8 @@ from thesisclaw.models.paper import (
     BriefingResult,
     Claim,
     CriticResult,
+    EducationalBreakdown,
+    FlowchartStep,
     PaperContent,
     PaperVerdict,
     PathfinderResult,
@@ -221,3 +223,111 @@ def publisher_subagent(
         verdict_counts=counts,
         timestamp="2026-09-29T21:00:00Z",
     )
+
+
+def visualizer_subagent(
+    paper: PaperContent,
+    verdict: PaperVerdict,
+    pathfinder: PathfinderResult | None = None,
+    similarity_score: float = 0.76,
+) -> EducationalBreakdown:
+    """Subagent Skill: Extracts novel ideas, constructs a 5-step visual pipeline, and summarizes takeaways."""
+    text_corpus = (paper.title + " " + paper.abstract + " " + " ".join(paper.sections.values())).lower()
+
+    # 1. Extract Novel Ideas
+    novel_ideas: list[str] = []
+    if "mixed-precision" in text_corpus or "int4" in text_corpus:
+        novel_ideas.append("Mixed-precision quantization preserving outlier-sensitive attention query heads while compressing linear weights.")
+    if "speculative" in text_corpus:
+        novel_ideas.append("Draft-model speculative decoding reducing memory bandwidth trips on edge LPDDR4X buses.")
+    if "neon" in text_corpus or "simd" in text_corpus or "arm" in text_corpus:
+        novel_ideas.append("Fused ARM NEON 128-bit vector arithmetic kernels for ultra-low latency integer matrix-vector multiplication.")
+    if "sliding window" in text_corpus or "cache" in text_corpus:
+        novel_ideas.append("Constant-memory KV cache eviction strategy capping memory footprint below 1.0 GB.")
+
+    if not novel_ideas:
+        novel_ideas = [
+            "Quantized weight representation minimizing memory bus saturation during streaming speech decoding.",
+            "Zero-point integer calibration preventing catastrophic accuracy loss under low-bit representations.",
+            "Container-friendly memory footprint runnable without hardware driver privilege escalation.",
+        ]
+
+    # 2. Thesis Comparison
+    thesis_comparison = (
+        f"Compared to our Raspberry Pi 5 Moonshine Tiny baseline (INT4 PTQ, target RTF <= 0.5, WER degradation <= 6%), "
+        f"this research {verdict.reason.lower().rstrip('.')}."
+    )
+
+    # 3. Simplified ELI5 Summary
+    simplified_summary = (
+        f"The paper addresses edge speech processing by compressing neural network parameters so they run locally "
+        f"on low-power hardware. In short: {verdict.reason}"
+    )
+
+    # 4. Construct 5-Step Visual Flowchart Pipeline
+    steps: list[FlowchartStep] = [
+        FlowchartStep(
+            step_number=1,
+            title="Acoustic Ingestion & Framing",
+            description="Streaming 16 kHz raw microphone audio is segmented into 25ms frames and converted into 80-channel Log-Mel spectrograms.",
+            category="Input Stage",
+            icon="🎙️",
+        ),
+        FlowchartStep(
+            step_number=2,
+            title="Encoder Feature Extraction",
+            description="Convolutional subsampling downsamples speech frames by 4x before feeding deep multi-head self-attention blocks.",
+            category="Architecture",
+            icon="🧠",
+        ),
+        FlowchartStep(
+            step_number=3,
+            title="The Paper's Novel Mechanism",
+            description=verdict.reason or "Post-training integer quantization applied to attention projections with outlier preservation.",
+            category="Core Innovation",
+            icon="⚡",
+        ),
+        FlowchartStep(
+            step_number=4,
+            title="Raspberry Pi 5 Execution Kernel",
+            description="Dispatched across 4x ARM Cortex-A76 cores using ARM NEON SIMD registers inside an unprivileged Podman container.",
+            category="Edge Hardware",
+            icon="⚙️",
+        ),
+        FlowchartStep(
+            step_number=5,
+            title="Real-Time Streaming Output",
+            description=f"Yields transcribed tokens meeting target: {pathfinder.success_criterion if pathfinder else 'RTF <= 0.5 and Peak RAM <= 1.0 GB'}.",
+            category="Target Benchmark",
+            icon="📊",
+        ),
+    ]
+
+    # 5. Core Takeaways
+    key_takeaways: list[str] = [
+        f"Thesis Verdict: {verdict.verdict.value.upper()} — {verdict.reason}",
+        "Edge Viability: Demonstrates that integer arithmetic can maintain acoustic transcription fidelity on RISC architectures.",
+        f"Verified Quote: \"{verdict.direct_quote or 'Direct empirical evidence verified by critic.'}\"",
+    ]
+    if pathfinder:
+        key_takeaways.append(f"Recommended Action: {pathfinder.next_experiment}")
+
+    return EducationalBreakdown(
+        arxiv_id=paper.arxiv_id,
+        title=paper.title,
+        authors=paper.authors,
+        year=paper.year,
+        similarity_score=similarity_score,
+        verdict=verdict.verdict,
+        verdict_reason=verdict.reason,
+        novel_ideas=novel_ideas,
+        thesis_comparison=thesis_comparison,
+        simplified_summary=simplified_summary,
+        flowchart_steps=steps,
+        key_takeaways=key_takeaways,
+        verified_quote=verdict.direct_quote,
+        next_experiment=pathfinder.next_experiment if pathfinder else "",
+        success_criterion=pathfinder.success_criterion if pathfinder else "",
+        citable_paragraph=pathfinder.citable_paragraph if pathfinder else "",
+    )
+

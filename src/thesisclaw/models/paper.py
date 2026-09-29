@@ -79,3 +79,40 @@ class BriefingResult(BaseModel):
     papers_processed: int = 0
     verdict_counts: dict[str, int] = Field(default_factory=dict)
     timestamp: str = ""
+
+
+class FlowchartStep(BaseModel):
+    """A discrete pipeline stage in the paper's methodology."""
+
+    step_number: int
+    title: str
+    description: str
+    category: str = Field(default="Pipeline", description="e.g. Input, Feature, Innovation, Kernel, Metric")
+    icon: str = Field(default="⚡", description="Visual representation icon")
+
+
+class EducationalBreakdown(BaseModel):
+    """Complete structured breakdown feeding the 3-tab index.html."""
+
+    arxiv_id: str
+    title: str
+    authors: list[str] = Field(default_factory=list)
+    year: int = 2026
+
+    # Tab 1: Similarity & Novel Ideas
+    similarity_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    verdict: VerdictEnum = VerdictEnum.SUPPORT
+    verdict_reason: str = ""
+    novel_ideas: list[str] = Field(default_factory=list, description="New ideas and innovative techniques found in the paper")
+    thesis_comparison: str = Field(default="", description="Direct comparison vs student's RPi5 Moonshine INT4 thesis")
+
+    # Tab 2: Picturefy & Flowchart
+    simplified_summary: str = Field(default="", description="ELI5 visual explanation of how the system works")
+    flowchart_steps: list[FlowchartStep] = Field(default_factory=list, description="Ordered pipeline stages")
+
+    # Tab 3: Key Takeaways & Experiment
+    key_takeaways: list[str] = Field(default_factory=list, description="Core bulleted takeaways")
+    verified_quote: str = ""
+    next_experiment: str = ""
+    success_criterion: str = ""
+    citable_paragraph: str = ""

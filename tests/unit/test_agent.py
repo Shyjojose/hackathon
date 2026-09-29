@@ -104,3 +104,28 @@ async def test_orchestrator_pipeline(tmp_path):
     assert res["paper"].arxiv_id == arxiv_id
     assert res["verdict"].verdict in (VerdictEnum.SUPPORT, VerdictEnum.EXTEND)
     assert orch.is_paper_processed(arxiv_id) is True
+
+
+def test_visualizer_subagent():
+    from thesisclaw.agent.subagents import visualizer_subagent
+
+    paper = PaperContent(
+        arxiv_id="2608.12345",
+        title="Streaming INT4 Speech on ARM NEON",
+        abstract="We demonstrate mixed-precision INT4 quantization with ARM NEON SIMD kernels.",
+    )
+    verdict = PaperVerdict(
+        arxiv_id="2608.12345",
+        verdict=VerdictEnum.SUPPORT,
+        reason="Demonstrates RTF <= 0.5 with high throughput.",
+        direct_quote="Achieved RTF 0.44 on Cortex-A76.",
+    )
+    breakdown = visualizer_subagent(paper, verdict)
+
+    assert breakdown.arxiv_id == "2608.12345"
+    assert len(breakdown.flowchart_steps) == 5
+    assert len(breakdown.novel_ideas) >= 1
+    assert "Acoustic Ingestion" in breakdown.flowchart_steps[0].title
+    assert "Raspberry Pi 5" in breakdown.flowchart_steps[3].title
+    assert len(breakdown.key_takeaways) >= 2
+

@@ -97,3 +97,32 @@ def test_scan_job_lifecycle():
     job.status = JobStatus.COMPLETED
     job.completed_at = "2026-09-29T21:01:00Z"
     assert job.status == JobStatus.COMPLETED
+
+
+def test_educational_breakdown_models():
+    from thesisclaw.models.paper import EducationalBreakdown, FlowchartStep
+
+    step = FlowchartStep(
+        step_number=1,
+        title="Audio Input",
+        description="Receives 16kHz audio",
+        category="Input",
+        icon="🎙️",
+    )
+    assert step.step_number == 1
+    assert step.icon == "🎙️"
+
+    breakdown = EducationalBreakdown(
+        arxiv_id="2608.12345",
+        title="Edge Speech Quantization",
+        similarity_score=0.82,
+        verdict=VerdictEnum.SUPPORT,
+        novel_ideas=["SIMD vectorization", "Cache compression"],
+        flowchart_steps=[step],
+        key_takeaways=["Fast inference", "Low WER"],
+    )
+    assert breakdown.arxiv_id == "2608.12345"
+    assert len(breakdown.flowchart_steps) == 1
+    assert len(breakdown.novel_ideas) == 2
+    assert breakdown.similarity_score == 0.82
+

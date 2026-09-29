@@ -40,9 +40,18 @@ def test_build_educational_paper_page(tmp_path):
     assert "The 60-Second ELI5" in content
     assert "Jargon Buster: Terms Decoded" in content
     assert "INT4 Quantization" in content
-    assert "The Recommended Next Experiment" in content
+    assert "Recommended Raspberry Pi 5 Experiment" in content
     assert "Deploy INT4 Moonshine Tiny" in content
     assert "RTF of 0.44" in content
+    assert "Similarity & Novel Ideas" in content
+    assert "Picturefy & Flowchart" in content
+    assert "Key Takeaways & Experiment" in content
+    assert "Pipeline Flow" in content
+
+    # Verify subfolder index.html exists
+    subfolder_index = tmp_path / "2608.99999" / "index.html"
+    assert subfolder_index.exists()
+    assert "Alpine.js" in subfolder_index.read_text(encoding="utf-8")
 
 
 def test_view_paper_page_web_endpoint(tmp_path, monkeypatch):
@@ -57,9 +66,15 @@ def test_view_paper_page_web_endpoint(tmp_path, monkeypatch):
     verdict = PaperVerdict(arxiv_id="2608.11111", verdict=VerdictEnum.SUPPORT, reason="Valid test")
     build_paper_page(paper, verdict, output_dir="site/public/papers")
 
+    # Both without and with trailing slash should return 200
     resp_200 = client.get("/papers/2608.11111")
     assert resp_200.status_code == 200
     assert "Test Serving Paper" in resp_200.text
+    assert "Similarity & Novel Ideas" in resp_200.text
+
+    resp_slash = client.get("/papers/2608.11111/")
+    assert resp_slash.status_code == 200
+    assert "Test Serving Paper" in resp_slash.text
 
 
 @pytest.mark.asyncio
@@ -79,6 +94,9 @@ async def test_telegram_forwards_educational_link(monkeypatch):
     import httpx
 
     respx.post(f"https://api.telegram.org/bot{token}/sendMessage").mock(side_effect=mock_send)
+    respx.post(f"https://api.telegram.org/bot{token}/sendDocument").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {"message_id": 2}})
+    )
     respx.get("https://arxiv-txt.org/abs/2608.22222").respond(
         status_code=200,
         text="Title: ARM ASR Benchmark\n\nAbstract\nWe evaluate INT4 on Cortex-A76.",
@@ -100,4 +118,4 @@ async def test_telegram_forwards_educational_link(monkeypatch):
     # Verify that the message sent to Telegram contains the link to the educational page
     matching_messages = [p["text"] for p in sent_payloads if "/papers/2608.22222" in p.get("text", "")]
     assert len(matching_messages) >= 1
-    assert "Interactive Educational Page" in matching_messages[0]
+    assert "Interactive 3-Tab Breakdown" in matching_messages[0]

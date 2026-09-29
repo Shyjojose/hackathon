@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from thesisclaw.config.settings import settings
 
 app = FastAPI(title="ThesisClaw Web Dashboard & Approval Gate")
+
+# Mount local assets directory for Alpine.js and offline styles
+assets_path = Path("site/public/papers/assets")
+assets_path.mkdir(parents=True, exist_ok=True)
+app.mount("/papers/assets", StaticFiles(directory=str(assets_path)), name="papers_assets")
 
 
 def get_db_connection() -> sqlite3.Connection:
@@ -30,19 +37,25 @@ def root() -> dict[str, str]:
 @app.get("/papers/", response_class=HTMLResponse)
 def list_paper_pages() -> str:
     """Gallery listing of all generated educational paper breakdowns."""
-    from pathlib import Path
-
     papers_dir = Path("site/public/papers")
-    paper_files = list(papers_dir.glob("*.html")) if papers_dir.exists() else []
+    paper_ids: set[str] = set()
+
+    if papers_dir.exists():
+        # Scan subfolder index.html files
+        for sub in papers_dir.iterdir():
+            if sub.is_dir() and sub.name != "assets" and (sub / "index.html").exists():
+                paper_ids.add(sub.name)
+        # Scan flat files
+        for p in papers_dir.glob("*.html"):
+            paper_ids.add(p.stem)
 
     cards_html = ""
-    for p in sorted(paper_files, reverse=True):
-        arxiv_id = p.stem
+    for arxiv_id in sorted(paper_ids, reverse=True):
         cards_html += f"""
         <div style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
             <div style="font-size: 0.85rem; color: #64748b; font-weight: 600; text-transform: uppercase;">arXiv ID: {arxiv_id}</div>
-            <h3 style="margin: 8px 0 12px 0;"><a href="/papers/{arxiv_id}" style="color: #2563eb; text-decoration: none;">View Educational Breakdown &rarr;</a></h3>
-            <p style="margin: 0; font-size: 0.875rem; color: #475569;">Interactive ELI5 summary, jargon buster, and Raspberry Pi 5 experiment.</p>
+            <h3 style="margin: 8px 0 12px 0;"><a href="/papers/{arxiv_id}" style="color: #2563eb; text-decoration: none;">View 3-Tab Educational Breakdown &rarr;</a></h3>
+            <p style="margin: 0; font-size: 0.875rem; color: #475569;">Interactive tabs: Similarity & Novel Ideas, Picturefy & Flowchart, Key Takeaways.</p>
         </div>
         """
 
@@ -78,13 +91,18 @@ def list_paper_pages() -> str:
 
 
 @app.get("/papers/{arxiv_id}", response_class=HTMLResponse)
+@app.get("/papers/{arxiv_id}/", response_class=HTMLResponse)
 def view_paper_page(arxiv_id: str) -> str:
-    """Serve the interactive educational webpage for an evaluated paper."""
-    from pathlib import Path
+    """Serve the interactive 3-tab educational webpage for an evaluated paper."""
+    # 1. Check subfolder index.html first
+    subfolder_path = Path("site/public/papers") / arxiv_id / "index.html"
+    if subfolder_path.exists():
+        return subfolder_path.read_text(encoding="utf-8")
 
-    page_path = Path("site/public/papers") / f"{arxiv_id}.html"
-    if page_path.exists():
-        return page_path.read_text(encoding="utf-8")
+    # 2. Check flat file fallback
+    flat_path = Path("site/public/papers") / f"{arxiv_id}.html"
+    if flat_path.exists():
+        return flat_path.read_text(encoding="utf-8")
 
     raise HTTPException(
         status_code=404,

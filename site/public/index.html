@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ThesisClaw — Autonomous Literature Agent</title>
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --primary: #2563eb;
+            --support: #10b981;
+            --extend: #f59e0b;
+            --threaten: #ef4444;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text-main);
+            margin: 0;
+            padding: 32px 16px;
+            line-height: 1.5;
+        }
+        .container {
+            max-width: 960px;
+            margin: auto;
+        }
+        header {
+            margin-bottom: 32px;
+        }
+        .title {
+            font-size: 2rem;
+            font-weight: 800;
+            margin: 0 0 8px 0;
+            color: #0f172a;
+        }
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            margin: 0;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #ecfdf5;
+            color: #065f46;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-top: 12px;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .grid-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-box {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-val {
+            font-size: 2.25rem;
+            font-weight: 700;
+            margin: 4px 0;
+        }
+        .stat-lbl {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .thesis-quote {
+            background: #f1f5f9;
+            border-left: 4px solid var(--primary);
+            padding: 16px;
+            margin: 16px 0;
+            border-radius: 0 8px 8px 0;
+            font-style: italic;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            margin-top: 12px;
+        }
+        th, td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            background: #f8fafc;
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .badge-support { background: #d1fae5; color: #065f46; }
+        .badge-extend { background: #fef3c7; color: #92400e; }
+        .badge-threaten { background: #fee2e2; color: #991b1b; }
+        .badge-irrelevant { background: #f1f5f9; color: #475569; }
+        footer {
+            text-align: center;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            margin-top: 48px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 class="title">ThesisClaw 🦅</h1>
+            <p class="subtitle">Autonomous Literature Agent & Thesis Defense Monitor</p>
+            <div class="status-pill">
+                <span class="status-dot"></span> Long-Running Agent Online • NVIDIA Claw Challenge: Berlin
+            </div>
+        </header>
+
+        <div class="card">
+            <h3 style="margin-top:0;">🎯 Research Thesis Anchor</h3>
+            <p><strong>Topic:</strong> Real-Time Privacy-Preserving Speech Transcription on Raspberry Pi 5 (Quad-Core ARM Cortex-A76 @ 2.4 GHz, LPDDR4X ~3,631 MiB/s) under Unprivileged Podman Container Isolation.</p>
+            <div class="thesis-quote">
+                &ldquo;If symmetric integer quantization compresses ASR models below INT8 precision, then real-time factor (RTF) and memory consumption decrease on ARM Cortex-A76 processors without exceeding 6% WER degradation.&rdquo;
+            </div>
+            <p style="margin-bottom:0; font-size: 0.9rem; color: var(--text-muted);">
+                <strong>Target Criteria:</strong> RTF &le; 0.5 • WER Degradation &le; 6% • Peak RAM &le; 1.0 GB • Zero OOM crashes under adversarial token flood.
+            </p>
+        </div>
+
+        <div class="grid-stats">
+            <div class="stat-box">
+                <div class="stat-lbl">Papers Evaluated</div>
+                <div class="stat-val" style="color:var(--primary);">Active</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-lbl">Supports Thesis</div>
+                <div class="stat-val" style="color:var(--support);">🟢 Tracked</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-lbl">Extends Scope</div>
+                <div class="stat-val" style="color:var(--extend);">🟡 Benchmarked</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-lbl">Scoop Warnings</div>
+                <div class="stat-val" style="color:var(--threaten);">🔴 Monitored</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top:0;">📡 Multi-Agent Architecture</h3>
+            <p>ThesisClaw executes a non-trivial 5-stage pipeline on every paper: <code>paper-reader</code> extracts falsifiable claims &rarr; <code>thesis-matcher</code> computes NVIDIA embedding cosine distance &rarr; <code>critic</code> verifies verbatim quotes (&ge;90% threshold) &rarr; <code>pathfinder</code> proposes Cortex-A76 experiments &rarr; <code>publisher</code> delivers morning briefings to Telegram and the XiaoZhi ESP32-S3 voice bridge.</p>
+        </div>
+
+        <footer>
+            <p>ThesisClaw • NVIDIA Claw Agent Challenge: Berlin • Built with Deep Agents & NemoClaw</p>
+        </footer>
+    </div>
+</body>
+</html>

@@ -38,20 +38,23 @@ def test_build_educational_paper_page(tmp_path):
 
     content = out_file.read_text(encoding="utf-8")
     assert "The 60-Second ELI5" in content
-    assert "Jargon Buster: Terms Decoded" in content
+    assert "Jargon Buster: Key Terms Decoded" in content
     assert "INT4 Quantization" in content
-    assert "Recommended Raspberry Pi 5 Experiment" in content
+    assert "Proposed Raspberry Pi 5 Hardware Experiment" in content
     assert "Deploy INT4 Moonshine Tiny" in content
     assert "RTF of 0.44" in content
-    assert "Similarity & Novel Ideas" in content
-    assert "Picturefy & Flowchart" in content
-    assert "Key Takeaways & Experiment" in content
-    assert "Pipeline Flow" in content
+    assert "Alignment & Novel Ideas" in content
+    assert "Architecture & Pipeline" in content
+    assert "Tradeoffs & Benchmarks" in content
+    assert "Experiment & Citations" in content
+    assert "mermaid.min.js" in content
+    assert "chart.min.js" in content
+    assert "tailwind.js" in content
 
     # Verify subfolder index.html exists
     subfolder_index = tmp_path / "2608.99999" / "index.html"
     assert subfolder_index.exists()
-    assert "Alpine.js" in subfolder_index.read_text(encoding="utf-8")
+    assert "alpine.min.js" in subfolder_index.read_text(encoding="utf-8")
 
 
 def test_view_paper_page_web_endpoint(tmp_path, monkeypatch):
@@ -70,7 +73,7 @@ def test_view_paper_page_web_endpoint(tmp_path, monkeypatch):
     resp_200 = client.get("/papers/2608.11111")
     assert resp_200.status_code == 200
     assert "Test Serving Paper" in resp_200.text
-    assert "Similarity & Novel Ideas" in resp_200.text
+    assert "Alignment & Novel Ideas" in resp_200.text
 
     resp_slash = client.get("/papers/2608.11111/")
     assert resp_slash.status_code == 200

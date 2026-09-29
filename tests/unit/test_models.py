@@ -120,9 +120,14 @@ def test_educational_breakdown_models():
         novel_ideas=["SIMD vectorization", "Cache compression"],
         flowchart_steps=[step],
         key_takeaways=["Fast inference", "Low WER"],
+        mermaid_architecture="flowchart TD; A-->B;",
+        chart_data={"rtf": [0.44]},
     )
     assert breakdown.arxiv_id == "2608.12345"
     assert len(breakdown.flowchart_steps) == 1
     assert len(breakdown.novel_ideas) == 2
     assert breakdown.similarity_score == 0.82
+    assert "flowchart TD" in breakdown.mermaid_architecture
+    assert breakdown.chart_data["rtf"] == [0.44]
+
 

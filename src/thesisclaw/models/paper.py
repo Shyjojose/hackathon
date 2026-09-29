@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -116,3 +117,8 @@ class EducationalBreakdown(BaseModel):
     next_experiment: str = ""
     success_criterion: str = ""
     citable_paragraph: str = ""
+
+    # Tab 2 & Tab 3 Visual Assets
+    mermaid_architecture: str = Field(default="", description="Mermaid flowchart definition of model architecture")
+    mermaid_sequence: str = Field(default="", description="Mermaid sequence diagram of real-time streaming pipeline")
+    chart_data: dict[str, Any] = Field(default_factory=dict, description="Benchmark and resource data points for Chart.js")

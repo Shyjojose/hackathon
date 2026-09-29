@@ -128,4 +128,8 @@ def test_visualizer_subagent():
     assert "Acoustic Ingestion" in breakdown.flowchart_steps[0].title
     assert "Raspberry Pi 5" in breakdown.flowchart_steps[3].title
     assert len(breakdown.key_takeaways) >= 2
+    assert "flowchart TD" in breakdown.mermaid_architecture
+    assert "sequenceDiagram" in breakdown.mermaid_sequence
+    assert "rtf" in breakdown.chart_data
+
 

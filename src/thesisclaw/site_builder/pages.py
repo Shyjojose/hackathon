@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 from pathlib import Path
 
 from thesisclaw.agent.subagents import visualizer_subagent
@@ -68,7 +69,7 @@ def build_paper_subfolder_index(
     breakdown: EducationalBreakdown,
     output_dir: str | Path = "site/public/papers",
 ) -> Path:
-    """Build a rich, 3-tab interactive index.html in a subfolder for the evaluated paper."""
+    """Build a rich, 4-tab interactive index.html powered by local Tailwind, Alpine, Mermaid, and Chart.js."""
     base_dir = Path(output_dir)
     subfolder = base_dir / breakdown.arxiv_id
     subfolder.mkdir(parents=True, exist_ok=True)
@@ -76,61 +77,48 @@ def build_paper_subfolder_index(
     flat_file = base_dir / f"{breakdown.arxiv_id}.html"
 
     badge_meta = {
-        "support": ("🟢 Supports Thesis", "#10b981", "#ecfdf5", "This paper provides solid experimental evidence validating your edge quantization benchmarks!"),
-        "extend": ("🟡 Extends Thesis", "#f59e0b", "#fffbeb", "This paper proposes a clever adjacent optimization you can adapt to improve throughput!"),
-        "threaten": ("🔴 Threatens Thesis (Warning)", "#ef4444", "#fef2f2", "Caution: This paper presents empirical results or bounds that could challenge your claims!"),
-        "irrelevant": ("⚪ Out of Scope", "#6b7280", "#f3f4f6", "This paper focuses on architectures outside your Raspberry Pi 5 research boundaries."),
-    }.get(breakdown.verdict.value, ("ℹ️ Evaluated", "#3b82f6", "#eff6ff", ""))
+        "support": ("🟢 Supports Thesis", "bg-emerald-100 text-emerald-800 border-emerald-300", "This paper provides solid experimental evidence validating your edge quantization benchmarks!"),
+        "extend": ("🟡 Extends Thesis", "bg-amber-100 text-amber-800 border-amber-300", "This paper proposes a clever adjacent optimization you can adapt to improve throughput!"),
+        "threaten": ("🔴 Threatens Thesis", "bg-rose-100 text-rose-800 border-rose-300", "Caution: This paper presents empirical results or bounds that could challenge your claims!"),
+        "irrelevant": ("⚪ Out of Scope", "bg-slate-100 text-slate-800 border-slate-300", "This paper focuses on architectures outside your Raspberry Pi 5 research boundaries."),
+    }.get(breakdown.verdict.value, ("ℹ️ Evaluated", "bg-blue-100 text-blue-800 border-blue-300", ""))
 
-    badge_label, badge_color, badge_bg, badge_expl = badge_meta
+    badge_label, badge_classes, badge_expl = badge_meta
 
     # Novel ideas cards
     novel_cards_html = "".join(
-        f"""<div class="novel-card">
-            <div class="novel-icon">💡</div>
-            <div class="novel-text"><b>Novel Mechanism:</b> {html.escape(idea)}</div>
+        f"""<div class="flex items-start gap-3 p-4 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-slate-50 transition">
+            <span class="text-xl">💡</span>
+            <div>
+                <span class="font-semibold text-slate-900 block text-sm mb-1">Novel Technique</span>
+                <p class="text-sm text-slate-700 m-0">{html.escape(idea)}</p>
+            </div>
         </div>"""
         for idea in breakdown.novel_ideas
     )
-
-    # Visual Flowchart Steps
-    flowchart_nodes_html = ""
-    for idx, step in enumerate(breakdown.flowchart_steps):
-        is_highlight = "highlight" if "Innovation" in step.category or "Novel" in step.category else ""
-        flowchart_nodes_html += f"""
-        <div class="flow-step {is_highlight}">
-            <div class="step-badge">{step.icon} Step {step.step_number} • {html.escape(step.category)}</div>
-            <div class="step-title">{html.escape(step.title)}</div>
-            <div class="step-desc">{html.escape(step.description)}</div>
-        </div>
-        """
-        if idx < len(breakdown.flowchart_steps) - 1:
-            flowchart_nodes_html += """
-            <div class="flow-arrow">
-                <span class="arrow-symbol">&darr;</span>
-                <span class="arrow-label">Pipeline Flow</span>
-            </div>
-            """
 
     # Jargon Buster items
     full_text = f"{breakdown.title} {breakdown.simplified_summary} {' '.join(breakdown.novel_ideas)}"
     jargon_items = _generate_jargon_buster(full_text)
     jargon_html = "".join(
-        f"""<div class="jargon-card">
-            <div class="jargon-term">💡 {html.escape(term)}</div>
-            <div class="jargon-def">{html.escape(defn)}</div>
+        f"""<div class="p-4 rounded-xl border border-slate-200 bg-white shadow-xs">
+            <div class="font-bold text-sm text-slate-800 mb-1">💡 {html.escape(term)}</div>
+            <div class="text-xs text-slate-600 leading-relaxed">{html.escape(defn)}</div>
         </div>"""
         for term, defn in jargon_items
     )
 
     # Key Takeaways
     takeaways_html = "".join(
-        f"""<li style="margin-bottom: 10px; font-size: 0.95rem; color: #1e293b;">{html.escape(pt)}</li>"""
+        f"""<li class="flex items-start gap-2 text-sm text-slate-800 mb-2">
+            <span class="text-emerald-500 font-bold">•</span>
+            <span>{html.escape(pt)}</span>
+        </li>"""
         for pt in breakdown.key_takeaways
     )
 
-    # Similarity percentage
     sim_pct = int(breakdown.similarity_score * 100)
+    chart_json = json.dumps(breakdown.chart_data)
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -138,462 +126,449 @@ def build_paper_subfolder_index(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Paper Breakdown: {html.escape(breakdown.title)}</title>
-    <!-- Locally vendored Alpine.js -->
+    <!-- 100% Locally Vendored Frontend Libraries (Zero External CDNs) -->
+    <script src="/papers/assets/tailwind.js"></script>
     <script defer src="/papers/assets/alpine.min.js"></script>
+    <script src="/papers/assets/chart.min.js"></script>
+    <script src="/papers/assets/mermaid.min.js"></script>
     <style>
-        :root {{
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --primary: #2563eb;
-            --primary-light: #eff6ff;
-            --badge-color: {badge_color};
-            --badge-bg: {badge_bg};
-        }}
-        * {{ box-sizing: border-box; }}
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text-main);
-            margin: 0;
-            padding: 32px 16px;
-            line-height: 1.6;
-        }}
-        .container {{
-            max-width: 900px;
-            margin: auto;
-        }}
-        .back-nav {{
-            margin-bottom: 16px;
-            display: flex;
-            gap: 16px;
-            font-size: 0.875rem;
-        }}
-        .back-nav a {{
-            color: var(--primary);
-            text-decoration: none;
-            font-weight: 600;
-        }}
-        .back-nav a:hover {{ text-decoration: underline; }}
-        .header-card {{
-            background: var(--card-bg);
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            padding: 28px;
-            margin-bottom: 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-        }}
-        .badge {{
-            display: inline-block;
-            background: var(--badge-bg);
-            color: var(--badge-color);
-            border: 1px solid var(--badge-color);
-            padding: 4px 12px;
-            border-radius: 9999px;
-            font-weight: 700;
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }}
-        h1 {{
-            font-size: 1.65rem;
-            margin: 12px 0 8px 0;
-            line-height: 1.3;
-        }}
-        .meta {{
-            color: var(--text-muted);
-            font-size: 0.85rem;
-        }}
-        .meta a {{
-            color: var(--primary);
-            text-decoration: none;
-        }}
-
-        /* Navigation Tabs */
-        .tab-nav {{
-            display: flex;
-            gap: 8px;
-            margin-bottom: 20px;
-            border-bottom: 2px solid var(--border);
-            padding-bottom: 8px;
-            overflow-x: auto;
-        }}
-        .tab-btn {{
-            background: transparent;
-            border: none;
-            outline: none;
-            padding: 10px 18px;
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: var(--text-muted);
-            cursor: pointer;
-            border-radius: 8px;
-            transition: all 0.2s;
-            white-space: nowrap;
-        }}
-        .tab-btn:hover {{
-            background: #f1f5f9;
-            color: var(--text-main);
-        }}
+        [x-cloak] {{ display: none !important; }}
         .tab-btn.active {{
-            background: var(--primary);
-            color: white;
-            box-shadow: 0 2px 4px rgba(37,99,235,0.2);
-        }}
-
-        /* Tab Content Cards */
-        .tab-pane {{
-            background: var(--card-bg);
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            padding: 28px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-        }}
-
-        /* Tab 1: Similarity & Novel Ideas */
-        .sim-gauge {{
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            background: #f8fafc;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 20px;
-        }}
-        .sim-val {{
-            font-size: 2rem;
-            font-weight: 800;
-            color: var(--primary);
-        }}
-        .sim-bar-bg {{
-            flex-grow: 1;
-            height: 12px;
-            background: #e2e8f0;
-            border-radius: 6px;
-            overflow: hidden;
-        }}
-        .sim-bar-fill {{
-            height: 100%;
-            background: linear-gradient(90deg, #3b82f6, #10b981);
-            width: {sim_pct}%;
-        }}
-        .novel-grid {{
-            display: grid;
-            gap: 12px;
-            margin: 16px 0;
-        }}
-        .novel-card {{
-            display: flex;
-            gap: 12px;
-            background: #f8fafc;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 14px;
-            align-items: flex-start;
-        }}
-        .novel-icon {{
-            font-size: 1.25rem;
-        }}
-        .novel-text {{
-            font-size: 0.9rem;
-            color: #334155;
-            line-height: 1.4;
-        }}
-        .comparison-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 16px;
-            font-size: 0.875rem;
-        }}
-        .comparison-table th, .comparison-table td {{
-            padding: 10px 14px;
-            border: 1px solid var(--border);
-            text-align: left;
-        }}
-        .comparison-table th {{
-            background: #f8fafc;
-            color: #475569;
-        }}
-
-        /* Tab 2: Flowchart */
-        .eli5-box {{
-            background: #f0fdf4;
-            border-left: 4px solid #10b981;
-            padding: 16px 20px;
-            border-radius: 0 8px 8px 0;
-            margin-bottom: 24px;
-        }}
-        .eli5-title {{
-            font-weight: 700;
-            color: #065f46;
-            margin-bottom: 4px;
-        }}
-        .flow-container {{
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4px;
-            margin: 20px 0;
-        }}
-        .flow-step {{
-            background: #ffffff;
-            border: 2px solid var(--border);
-            border-radius: 10px;
-            padding: 18px 24px;
-            width: 100%;
-            max-width: 680px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
-            position: relative;
-        }}
-        .flow-step.highlight {{
-            border-color: #2563eb;
-            background: #f8faff;
-            box-shadow: 0 0 0 1px #2563eb;
-        }}
-        .step-badge {{
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #2563eb;
-            margin-bottom: 6px;
-        }}
-        .step-title {{
-            font-size: 1.05rem;
-            font-weight: 700;
-            color: #0f172a;
-            margin-bottom: 4px;
-        }}
-        .step-desc {{
-            font-size: 0.875rem;
-            color: #475569;
-            line-height: 1.4;
-        }}
-        .flow-arrow {{
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            color: #94a3b8;
-            font-size: 0.85rem;
-            margin: 4px 0;
-        }}
-        .arrow-symbol {{
-            font-size: 1.4rem;
-            line-height: 1;
-            color: #3b82f6;
-        }}
-        .arrow-label {{
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }}
-        .jargon-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 12px;
-            margin-top: 20px;
-        }}
-        .jargon-card {{
-            background: #f8fafc;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 14px;
-        }}
-        .jargon-term {{
-            font-weight: 700;
-            font-size: 0.9rem;
-            color: #1e293b;
-            margin-bottom: 4px;
-        }}
-        .jargon-def {{
-            font-size: 0.825rem;
-            color: #475569;
-            line-height: 1.4;
-        }}
-
-        /* Tab 3: Takeaways & Experiment */
-        .quote-box {{
-            background: #f8fafc;
-            border-left: 4px solid var(--primary);
-            padding: 16px 20px;
-            border-radius: 0 8px 8px 0;
-            margin: 20px 0;
-            font-style: italic;
-            color: #334155;
-        }}
-        .action-box {{
-            background: #eff6ff;
-            border: 1px solid #bfdbfe;
-            border-radius: 8px;
-            padding: 20px;
-            margin-top: 20px;
-        }}
-        .action-box h4 {{
-            margin-top: 0;
-            color: #1e40af;
-        }}
-        footer {{
-            text-align: center;
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            margin-top: 36px;
+            background-color: #2563eb;
+            color: #ffffff;
+            box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
         }}
     </style>
 </head>
-<body>
-    <div class="container" x-data="{{ tab: 'ideas' }}">
-        <div class="back-nav">
-            <a href="/papers">&larr; Literature Gallery</a>
+<body class="bg-slate-50 text-slate-900 antialiased font-sans p-4 md:p-8">
+    <div class="max-w-4xl mx-auto" x-data="{{ tab: 'ideas', mode: 'eli5', copied: false }}" x-cloak>
+        
+        <!-- Navigation Header -->
+        <nav class="flex items-center gap-3 text-sm font-medium text-slate-500 mb-4">
+            <a href="/papers" class="text-blue-600 hover:underline">&larr; Literature Gallery</a>
             <span>•</span>
-            <a href="/notes">Human Approval Gate</a>
+            <a href="/notes" class="text-blue-600 hover:underline">Human Approval Gate</a>
             <span>•</span>
-            <a href="/">Judge Dashboard</a>
-        </div>
+            <a href="/" class="text-blue-600 hover:underline">Judge Dashboard</a>
+        </nav>
 
-        <div class="header-card">
-            <span class="badge">{badge_label}</span>
-            <h1>{html.escape(breakdown.title)}</h1>
-            <div class="meta">
-                <strong>arXiv:</strong> <a href="https://arxiv.org/abs/{html.escape(breakdown.arxiv_id)}" target="_blank" rel="noopener">{html.escape(breakdown.arxiv_id)}</a> • 
-                <strong>Authors:</strong> {html.escape(', '.join(breakdown.authors[:3]) if breakdown.authors else 'Listed on arXiv')} • 
-                <strong>Year:</strong> {breakdown.year}
+        <!-- Header Card -->
+        <header class="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 mb-6 shadow-xs">
+            <div class="flex items-center gap-3 mb-3">
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border {badge_classes}">
+                    {badge_label}
+                </span>
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    arXiv:{html.escape(breakdown.arxiv_id)}
+                </span>
             </div>
-        </div>
+            <h1 class="text-2xl md:text-3xl font-extrabold text-slate-900 leading-tight mb-3">
+                {html.escape(breakdown.title)}
+            </h1>
+            <div class="text-sm text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span><strong>Authors:</strong> {html.escape(', '.join(breakdown.authors[:3]) if breakdown.authors else 'Listed on arXiv')}</span>
+                <span>•</span>
+                <span><strong>Year:</strong> {breakdown.year}</span>
+                <span>•</span>
+                <a href="https://arxiv.org/abs/{html.escape(breakdown.arxiv_id)}" target="_blank" rel="noopener" class="text-blue-600 font-medium hover:underline">
+                    View on arXiv &rarr;
+                </a>
+            </div>
+        </header>
 
-        <!-- Interactive Alpine.js Navigation Tabs -->
-        <nav class="tab-nav">
+        <!-- 4-Tab Navigation Bar -->
+        <nav class="flex gap-2 overflow-x-auto pb-2 border-b-2 border-slate-200 mb-6">
             <button 
                 id="btn-ideas"
-                class="tab-btn" 
+                class="tab-btn px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100 transition whitespace-nowrap"
                 :class="{{ 'active': tab === 'ideas' }}" 
                 @click="tab = 'ideas'"
                 onclick="window.switchTab && window.switchTab('ideas')"
             >
-                🎯 1. Similarity & Novel Ideas
+                🎯 1. Alignment & Novel Ideas
             </button>
             <button 
-                id="btn-flowchart"
-                class="tab-btn" 
-                :class="{{ 'active': tab === 'flowchart' }}" 
-                @click="tab = 'flowchart'"
-                onclick="window.switchTab && window.switchTab('flowchart')"
+                id="btn-pipeline"
+                class="tab-btn px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100 transition whitespace-nowrap"
+                :class="{{ 'active': tab === 'pipeline' }}" 
+                @click="tab = 'pipeline'; $nextTick(() => window.renderMermaid && window.renderMermaid())"
+                onclick="window.switchTab && window.switchTab('pipeline')"
             >
-                🖼️ 2. Picturefy & Flowchart
+                🖼️ 2. Architecture & Pipeline
             </button>
             <button 
-                id="btn-takeaways"
-                class="tab-btn" 
-                :class="{{ 'active': tab === 'takeaways' }}" 
-                @click="tab = 'takeaways'"
-                onclick="window.switchTab && window.switchTab('takeaways')"
+                id="btn-benchmarks"
+                class="tab-btn px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100 transition whitespace-nowrap"
+                :class="{{ 'active': tab === 'benchmarks' }}" 
+                @click="tab = 'benchmarks'; $nextTick(() => window.initCharts && window.initCharts())"
+                onclick="window.switchTab && window.switchTab('benchmarks')"
             >
-                📌 3. Key Takeaways & Experiment
+                📊 3. Tradeoffs & Benchmarks
+            </button>
+            <button 
+                id="btn-experiment"
+                class="tab-btn px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100 transition whitespace-nowrap"
+                :class="{{ 'active': tab === 'experiment' }}" 
+                @click="tab = 'experiment'"
+                onclick="window.switchTab && window.switchTab('experiment')"
+            >
+                🧪 4. Experiment & Citations
             </button>
         </nav>
 
-        <!-- TAB 1: Similarity & Novel Ideas -->
-        <div id="tab-ideas" class="tab-pane" x-show="tab === 'ideas'" data-tab-content>
-            <h3>🎯 Relevance & Thesis Alignment</h3>
-            <div class="sim-gauge">
-                <div class="sim-val">{sim_pct}%</div>
-                <div class="sim-bar-bg">
-                    <div class="sim-bar-fill"></div>
+        <!-- TAB 1: Alignment & Novel Ideas -->
+        <section id="tab-ideas" class="tab-pane space-y-6" x-show="tab === 'ideas'" data-tab-content>
+            <!-- Similarity & Verdict -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <h3 class="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
+                    <span>🎯</span> Thesis Relevance & Alignment Score
+                </h3>
+                <div class="flex items-center gap-4 bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
+                    <div class="text-3xl font-extrabold text-blue-600">{sim_pct}%</div>
+                    <div class="flex-grow">
+                        <div class="w-full bg-slate-200 h-3 rounded-full overflow-hidden">
+                            <div class="bg-gradient-to-r from-blue-500 to-emerald-500 h-3 rounded-full" style="width: {sim_pct}%"></div>
+                        </div>
+                        <div class="text-xs font-semibold text-slate-500 mt-1">Cosine Embedding Similarity vs. Thesis Profile</div>
+                    </div>
                 </div>
-                <div style="font-size:0.875rem; font-weight:600; color:#475569;">Embedding Match</div>
-            </div>
-            <p><strong>Verdict Rationale:</strong> {html.escape(breakdown.verdict_reason)}</p>
-
-            <h3 style="margin-top: 24px;">💡 Novel Ideas & Techniques Discovered</h3>
-            <div class="novel-grid">
-                {novel_cards_html}
+                <p class="text-sm text-slate-700 leading-relaxed">
+                    <strong>Verdict Rationale:</strong> {html.escape(breakdown.verdict_reason)}
+                </p>
             </div>
 
-            <h3 style="margin-top: 24px;">⚖️ Comparison vs. Raspberry Pi 5 Thesis Baseline</h3>
-            <p>{html.escape(breakdown.thesis_comparison)}</p>
-            <table class="comparison-table">
-                <thead>
-                    <tr>
-                        <th>Metric / Aspect</th>
-                        <th>Thesis Baseline (Moonshine Tiny INT4)</th>
-                        <th>Paper Method (arXiv:{html.escape(breakdown.arxiv_id)})</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><strong>Target Platform</strong></td>
-                        <td>Raspberry Pi 5 (Quad Cortex-A76 @ 2.4 GHz)</td>
-                        <td>RISC / ARM / Edge Processor</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Quantization Scheme</strong></td>
-                        <td>INT4 PTQ Weight-Only + INT8 Activation</td>
-                        <td>{html.escape(breakdown.verdict.value.upper())} Method</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Target Throughput</strong></td>
-                        <td>RTF &le; 0.5 (Speech time &times; 0.5)</td>
-                        <td>Verified empirical acceleration</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Sandbox Isolation</strong></td>
-                        <td>Unprivileged Podman Container</td>
-                        <td>Safe edge execution</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- TAB 2: Picturefy & Flowchart -->
-        <div id="tab-flowchart" class="tab-pane" x-show="tab === 'flowchart'" data-tab-content style="display: none;">
-            <div class="eli5-box">
-                <div class="eli5-title">🎓 The 60-Second ELI5 (Explain Like I'm 5)</div>
-                <p style="margin:0;">{html.escape(breakdown.simplified_summary)}</p>
-                <p style="margin: 8px 0 0 0; font-size: 0.875rem; color: #047857;"><strong>Bottom line:</strong> {html.escape(badge_expl)}</p>
+            <!-- Novel Discoveries -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <h3 class="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
+                    <span>💡</span> Novel Mechanisms & Ideas in this Paper
+                </h3>
+                <div class="grid gap-3">
+                    {novel_cards_html}
+                </div>
             </div>
 
-            <h3 style="text-align: center; margin-bottom: 4px;">🖼️ End-to-End System Pipeline Flowchart</h3>
-            <p style="text-align: center; color: var(--text-muted); font-size: 0.875rem; margin-top: 0;">Step-by-step architectural breakdown from audio wave to real-time text</p>
+            <!-- Side-by-Side Comparison -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <span>⚖️</span> Comparison vs. Thesis Baseline
+                    </h3>
+                    <!-- Alpine ELI5 vs Deep Dive Switcher -->
+                    <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-100 text-xs font-semibold">
+                        <button 
+                            class="px-2.5 py-1 rounded-md transition" 
+                            :class="mode === 'eli5' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-500'" 
+                            @click="mode = 'eli5'"
+                        >
+                            ELI5 Summary
+                        </button>
+                        <button 
+                            class="px-2.5 py-1 rounded-md transition" 
+                            :class="mode === 'deep' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-500'" 
+                            @click="mode = 'deep'"
+                        >
+                            Deep Specs
+                        </button>
+                    </div>
+                </div>
 
-            <div class="flow-container">
-                {flowchart_nodes_html}
+                <div x-show="mode === 'eli5'" class="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-sm mb-4">
+                    <div class="font-bold mb-1 flex items-center gap-1.5 text-emerald-800">
+                        <span>🎓</span> The 60-Second ELI5 (Explain Like I'm 5)
+                    </div>
+                    <p class="m-0 leading-relaxed">{html.escape(breakdown.simplified_summary)}</p>
+                    <p class="mt-2 mb-0 font-semibold text-xs text-emerald-700">{badge_expl}</p>
+                </div>
+
+                <p class="text-sm text-slate-700 mb-4">{html.escape(breakdown.thesis_comparison)}</p>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-600 border-b border-slate-200">
+                                <th class="p-3 font-semibold">Aspect</th>
+                                <th class="p-3 font-semibold">Thesis Baseline (Moonshine Tiny)</th>
+                                <th class="p-3 font-semibold">Paper Method (arXiv:{html.escape(breakdown.arxiv_id)})</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-slate-800">
+                            <tr>
+                                <td class="p-3 font-medium text-slate-600">Hardware Target</td>
+                                <td class="p-3">Raspberry Pi 5 (Quad Cortex-A76 @ 2.4 GHz)</td>
+                                <td class="p-3">ARM / RISC Edge Architecture</td>
+                            </tr>
+                            <tr>
+                                <td class="p-3 font-medium text-slate-600">Quantization Scheme</td>
+                                <td class="p-3">INT4 PTQ Weight-Only + INT8 Activation</td>
+                                <td class="p-3 font-semibold text-blue-600">{html.escape(breakdown.verdict.value.upper())} Technique</td>
+                            </tr>
+                            <tr>
+                                <td class="p-3 font-medium text-slate-600">Throughput Target</td>
+                                <td class="p-3">RTF &le; 0.5 (2x Real-Time Speed)</td>
+                                <td class="p-3">Verified empirical speedup</td>
+                            </tr>
+                            <tr>
+                                <td class="p-3 font-medium text-slate-600">Isolation Policy</td>
+                                <td class="p-3">Unprivileged Podman Container</td>
+                                <td class="p-3">Non-root edge execution</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: Architecture & Pipeline -->
+        <section id="tab-pipeline" class="tab-pane space-y-6" x-show="tab === 'pipeline'" data-tab-content style="display: none;">
+            <!-- Model Architecture Flowchart -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <div class="mb-4">
+                    <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <span>🖼️</span> Neural Architecture Dataflow
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-1">Rendered dynamically via local Mermaid.js</p>
+                </div>
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 overflow-x-auto flex justify-center">
+                    <pre class="mermaid">{breakdown.mermaid_architecture}</pre>
+                </div>
             </div>
 
-            <h3 style="margin-top: 32px;">📖 Jargon Buster: Terms Decoded</h3>
-            <div class="jargon-grid">
-                {jargon_html}
+            <!-- Streaming Execution Sequence -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <div class="mb-4">
+                    <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <span>⚡</span> Real-Time Streaming Audio Sequence
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-1">Sequence diagram between microphone chunker, SIMD registers, and output</p>
+                </div>
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 overflow-x-auto flex justify-center">
+                    <pre class="mermaid">{breakdown.mermaid_sequence}</pre>
+                </div>
             </div>
-        </div>
 
-        <!-- TAB 3: Key Takeaways & Experiment -->
-        <div id="tab-takeaways" class="tab-pane" x-show="tab === 'takeaways'" data-tab-content style="display: none;">
-            <h3>📌 Essential Key Takeaways</h3>
-            <ul style="padding-left: 20px;">
-                {takeaways_html}
-            </ul>
+            <!-- Jargon Buster -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <h3 class="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
+                    <span>📖</span> Jargon Buster: Key Terms Decoded
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {jargon_html}
+                </div>
+            </div>
+        </section>
 
-            {f'''<h3>📜 The Verified Evidence (Direct Quote)</h3>
-            <div class="quote-box">
-                &ldquo;{html.escape(breakdown.verified_quote)}&rdquo;
+        <!-- TAB 3: Benchmarks & Tradeoffs -->
+        <section id="tab-benchmarks" class="tab-pane space-y-6" x-show="tab === 'benchmarks'" data-tab-content style="display: none;">
+            <!-- RTF vs WER Chart -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <div class="mb-4">
+                    <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <span>📊</span> Accuracy vs. Speed Tradeoff (WER vs. RTF)
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-1">Target boundary: RTF &le; 0.5 (lower is faster) and WER degradation &le; 6%</p>
+                </div>
+                <div class="h-64 w-full">
+                    <canvas id="rtfWerChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Memory Footprint Chart -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <div class="mb-4">
+                    <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <span>🧠</span> Peak Memory Footprint on Edge (RAM in MB)
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-1">Comparing peak runtime RAM against the 1.0 GB container boundary on Raspberry Pi 5</p>
+                </div>
+                <div class="h-64 w-full">
+                    <canvas id="ramChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Hardware Metrics Pill -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="p-4 rounded-xl border border-slate-200 bg-white shadow-xs text-center">
+                    <div class="text-xs font-semibold text-slate-500 uppercase">Target RTF</div>
+                    <div class="text-2xl font-extrabold text-blue-600 mt-1">&le; 0.50</div>
+                    <div class="text-xs text-slate-400 mt-1">2x Real-Time Speed</div>
+                </div>
+                <div class="p-4 rounded-xl border border-slate-200 bg-white shadow-xs text-center">
+                    <div class="text-xs font-semibold text-slate-500 uppercase">Max WER Drop</div>
+                    <div class="text-2xl font-extrabold text-emerald-600 mt-1">&le; 6.0%</div>
+                    <div class="text-xs text-slate-400 mt-1">Acoustic Degradation Limit</div>
+                </div>
+                <div class="p-4 rounded-xl border border-slate-200 bg-white shadow-xs text-center">
+                    <div class="text-xs font-semibold text-slate-500 uppercase">RAM Ceiling</div>
+                    <div class="text-2xl font-extrabold text-purple-600 mt-1">&le; 1,000 MB</div>
+                    <div class="text-xs text-slate-400 mt-1">Podman Container Limit</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: Experiment & Citations -->
+        <section id="tab-experiment" class="tab-pane space-y-6" x-show="tab === 'experiment'" data-tab-content style="display: none;">
+            <!-- Essential Key Takeaways -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <h3 class="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
+                    <span>📌</span> Essential Key Takeaways
+                </h3>
+                <ul class="space-y-1">
+                    {takeaways_html}
+                </ul>
+            </div>
+
+            <!-- Next Experiment Proposal -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <h3 class="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
+                    <span>🧪</span> Proposed Raspberry Pi 5 Hardware Experiment
+                </h3>
+                <div class="p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-950 text-sm mb-4">
+                    <p class="font-medium mb-2"><strong>Test Protocol:</strong> {html.escape(breakdown.next_experiment)}</p>
+                    <p class="text-xs font-mono bg-blue-100/70 p-2.5 rounded-lg border border-blue-200">
+                        podman run --rm --security-opt no-new-privileges --cpus 4 -m 1000m thesisclaw:rpi5-asr-eval
+                    </p>
+                </div>
+                <p class="text-sm text-slate-700">
+                    <strong>Target Benchmark Criterion:</strong> <code class="px-2 py-0.5 rounded-md bg-slate-100 text-xs font-bold text-blue-700">{html.escape(breakdown.success_criterion)}</code>
+                </p>
+            </div>
+
+            <!-- Verified Academic Proof -->
+            {f'''<div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <h3 class="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
+                    <span>📜</span> Verified Academic Evidence (Direct Quote)
+                </h3>
+                <blockquote class="p-4 rounded-xl bg-slate-50 border-l-4 border-blue-600 text-slate-700 italic text-sm">
+                    &ldquo;{html.escape(breakdown.verified_quote)}&rdquo;
+                </blockquote>
+                <div class="text-xs text-slate-400 mt-2">Verified verbatim by Critic Subagent (Quality Gate Passed)</div>
             </div>''' if breakdown.verified_quote else ''}
 
-            {f'''<div class="action-box">
-                <h4>🧪 Recommended Raspberry Pi 5 Experiment</h4>
-                <p style="margin-bottom:8px;"><strong>Test Protocol:</strong> {html.escape(breakdown.next_experiment)}</p>
-                <p style="margin-bottom:8px;"><strong>Target Benchmark:</strong> <code>{html.escape(breakdown.success_criterion)}</code></p>
-                <p style="margin-bottom:0; font-size:0.875rem; color:#475569;"><strong>APA Citation:</strong> <em>{html.escape(breakdown.citable_paragraph)}</em></p>
-            </div>''' if breakdown.next_experiment else ''}
-        </div>
+            <!-- Citable APA Paragraph -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <span>📝</span> Citable APA Reference Paragraph
+                    </h3>
+                    <button 
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
+                        @click="navigator.clipboard.writeText('{html.escape(breakdown.citable_paragraph).replace("'", "\\'")}'); copied = true; setTimeout(() => copied = false, 2000)"
+                    >
+                        <span x-text="copied ? '✅ Copied!' : '📋 Copy Citation'"></span>
+                    </button>
+                </div>
+                <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700 italic leading-relaxed">
+                    {html.escape(breakdown.citable_paragraph)}
+                </div>
+            </div>
+        </section>
 
-        <footer>
+        <!-- Footer -->
+        <footer class="text-center text-xs text-slate-400 mt-10">
             <p>ThesisClaw • Autonomous Literature Agent • Built for NVIDIA Claw Agent Challenge: Berlin</p>
         </footer>
     </div>
 
-    <!-- Fallback vanilla tab switcher for offline standalone file opening -->
+    <!-- Chart.js & Mermaid Interactive Initializers -->
     <script>
+        const chartData = {chart_json};
+        let chartsInitialized = false;
+
+        window.renderMermaid = function() {{
+            if (window.mermaid) {{
+                mermaid.initialize({{ startOnLoad: true, theme: 'default', securityLevel: 'loose' }});
+                mermaid.run();
+            }}
+        }};
+
+        window.initCharts = function() {{
+            if (chartsInitialized || !window.Chart) return;
+            chartsInitialized = true;
+
+            // Chart 1: RTF & WER
+            const ctx1 = document.getElementById('rtfWerChart');
+            if (ctx1) {{
+                new Chart(ctx1, {{
+                    type: 'bar',
+                    data: {{
+                        labels: chartData.labels,
+                        datasets: [
+                            {{
+                                label: 'Real-Time Factor (RTF - lower is faster)',
+                                data: chartData.rtf,
+                                backgroundColor: 'rgba(37, 99, 235, 0.75)',
+                                borderColor: 'rgb(37, 99, 235)',
+                                borderWidth: 1,
+                                yAxisID: 'y'
+                            }},
+                            {{
+                                label: 'WER Degradation (% - lower is better)',
+                                data: chartData.wer_degradation,
+                                type: 'line',
+                                borderColor: 'rgb(16, 185, 129)',
+                                backgroundColor: 'rgb(16, 185, 129)',
+                                borderWidth: 2,
+                                yAxisID: 'y1'
+                            }}
+                        ]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {{
+                            y: {{
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                title: {{ display: true, text: 'RTF' }}
+                            }},
+                            y1: {{
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                grid: {{ drawOnChartArea: false }},
+                                title: {{ display: true, text: 'WER Degradation (%)' }}
+                            }}
+                        }}
+                    }}
+                }});
+            }}
+
+            // Chart 2: RAM Footprint
+            const ctx2 = document.getElementById('ramChart');
+            if (ctx2) {{
+                new Chart(ctx2, {{
+                    type: 'bar',
+                    data: {{
+                        labels: chartData.labels,
+                        datasets: [{{
+                            label: 'Peak RAM (MB)',
+                            data: chartData.ram_mb,
+                            backgroundColor: [
+                                'rgba(239, 68, 68, 0.7)',
+                                'rgba(245, 158, 11, 0.7)',
+                                'rgba(59, 130, 246, 0.7)',
+                                'rgba(16, 185, 129, 0.8)',
+                                'rgba(147, 51, 234, 0.7)'
+                            ],
+                            borderWidth: 1
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {{
+                            y: {{
+                                beginAtZero: true,
+                                title: {{ display: true, text: 'Memory in Megabytes (MB)' }}
+                            }}
+                        }}
+                    }}
+                }});
+            }}
+        }};
+
+        // Vanilla Fallback Tab Switcher for Standalone Offline Opening
         window.switchTab = function(name) {{
             document.querySelectorAll('[data-tab-content]').forEach(function(el) {{
                 el.style.display = 'none';
@@ -605,7 +580,17 @@ def build_paper_subfolder_index(
             if (target) target.style.display = 'block';
             var activeBtn = document.getElementById('btn-' + name);
             if (activeBtn) activeBtn.classList.add('active');
+
+            if (name === 'pipeline') {{
+                setTimeout(window.renderMermaid, 50);
+            }} else if (name === 'benchmarks') {{
+                setTimeout(window.initCharts, 50);
+            }}
         }};
+
+        document.addEventListener('DOMContentLoaded', function() {{
+            window.renderMermaid();
+        }});
     </script>
 </body>
 </html>

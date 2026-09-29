@@ -1,5 +1,5 @@
 # ── Live agent memory (backed up separately to a private repo) ─────────────
-research/
+/research/
 
 # ── Python ─────────────────────────────────────────────────────────────────
 .venv/

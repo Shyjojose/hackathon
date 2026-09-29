@@ -132,16 +132,69 @@ def build_paper_subfolder_index(
     <script src="/papers/assets/chart.min.js"></script>
     <script src="/papers/assets/mermaid.min.js"></script>
     <style>
-        [x-cloak] {{ display: none !important; }}
+        /* Mobile Touch & Self-Contained Styles (Clean Fallback without Tailwind/Alpine) */
+        :root {{
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --border: #e2e8f0;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+        }}
+        body {{
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 12px;
+            background-color: var(--bg);
+            color: var(--text-main);
+            -webkit-font-smoothing: antialiased;
+        }}
+        @media (min-width: 768px) {{
+            body {{ padding: 2rem; }}
+        }}
+        /* Tab Bar Mobile Touch Scrolling */
+        nav.tab-nav-bar {{
+            display: flex;
+            gap: 0.5rem;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 1.5rem;
+            scrollbar-width: thin;
+        }}
+        .tab-btn {{
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            font-family: inherit;
+            padding: 0.6rem 1rem;
+            border-radius: 0.75rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            white-space: nowrap;
+            transition: all 0.15s ease-in-out;
+        }}
+        .tab-btn:hover {{ background-color: #f1f5f9; }}
         .tab-btn.active {{
-            background-color: #2563eb;
-            color: #ffffff;
+            background-color: var(--primary) !important;
+            color: #ffffff !important;
             box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
         }}
+        /* Fallback Tab Display (Tab 1 visible by default) */
+        .tab-pane {{ display: none; }}
+        .tab-pane.active, #tab-ideas {{ display: block; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th, td {{ padding: 0.75rem; border: 1px solid var(--border); text-align: left; font-size: 0.875rem; }}
+        th {{ background: #f8fafc; font-weight: 600; }}
+        .overflow-x-auto {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+        [x-cloak] {{ display: none !important; }}
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 antialiased font-sans p-4 md:p-8">
-    <div class="max-w-4xl mx-auto" x-data="{{ tab: 'ideas', mode: 'eli5', copied: false }}" x-cloak>
+    <div class="max-w-4xl mx-auto" x-data="{{ tab: 'ideas', mode: 'eli5', copied: false }}">
         
         <!-- Navigation Header -->
         <nav class="flex items-center gap-3 text-sm font-medium text-slate-500 mb-4">
@@ -177,7 +230,7 @@ def build_paper_subfolder_index(
         </header>
 
         <!-- 4-Tab Navigation Bar -->
-        <nav class="flex gap-2 overflow-x-auto pb-2 border-b-2 border-slate-200 mb-6">
+        <nav class="flex gap-2 overflow-x-auto pb-2 border-b-2 border-slate-200 mb-6 tab-nav-bar">
             <button 
                 id="btn-ideas"
                 class="tab-btn px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100 transition whitespace-nowrap"
@@ -589,7 +642,10 @@ def build_paper_subfolder_index(
         }};
 
         document.addEventListener('DOMContentLoaded', function() {{
-            window.renderMermaid();
+            document.querySelectorAll('[x-cloak]').forEach(function(el) {{
+                el.removeAttribute('x-cloak');
+            }});
+            window.renderMermaid && window.renderMermaid();
         }});
     </script>
 </body>

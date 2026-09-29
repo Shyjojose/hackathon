@@ -289,3 +289,113 @@ async def test_telegram_additional_commands(monkeypatch: pytest.MonkeyPatch) -> 
         "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "/notes"}
     })
     assert res_notes == "Notes handled."
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_telegram_history_discarded_similar_commands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
+) -> None:
+    monkeypatch.setattr("thesisclaw.config.settings.settings.telegram_allowed_ids", "111")
+    monkeypatch.setattr("thesisclaw.config.settings.settings.checkpoints_dir", str(tmp_path))
+    monkeypatch.setattr("thesisclaw.config.settings.settings.nvidia_api_key", "")
+    token = "mock-bot-token"
+
+    # Set up sqlite db with processed_papers
+    db_file = tmp_path / "thesisclaw.sqlite3"
+    with sqlite3.connect(db_file) as conn:
+        conn.execute("""
+            CREATE TABLE processed_papers (
+                arxiv_id TEXT PRIMARY KEY,
+                title TEXT,
+                verdict TEXT,
+                confidence TEXT,
+                reason TEXT,
+                backed_ratio REAL,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            INSERT INTO processed_papers (arxiv_id, title, verdict, confidence, reason, backed_ratio)
+            VALUES ('2410.05229', 'Moonshine: Speech Recognition for Edge Devices', 'support', 'high', 'Fast latency on ARM', 1.0)
+        """)
+        conn.execute("""
+            INSERT INTO processed_papers (arxiv_id, title, verdict, confidence, reason, backed_ratio)
+            VALUES ('2609.99999', 'Large Server LLM Training', 'irrelevant', 'high', 'Embedding similarity below threshold', 0.0)
+        """)
+
+    sent_payloads: list[dict[str, Any]] = []
+
+    def capture_message(request: httpx.Request) -> httpx.Response:
+        sent_payloads.append(json.loads(request.content.decode()))
+        return httpx.Response(status_code=200, json={"ok": True})
+
+    respx.post(f"https://api.telegram.org/bot{token}/sendMessage").mock(
+        side_effect=capture_message
+    )
+
+    bot = TelegramBotClient(token=token)
+    bot.seen_users.add(111)
+
+    # 1. Test /history command
+    res_hist = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "/history"}
+    })
+    assert res_hist == "History handled."
+    assert "Literature Review History" in sent_payloads[-1]["text"]
+    assert "Total Papers" in sent_payloads[-1]["text"]
+    assert "Moonshine" in sent_payloads[-1]["text"]
+    assert "Large Server" in sent_payloads[-1]["text"]
+
+    # 2. Test /discarded command
+    res_disc = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "/discarded"}
+    })
+    assert res_disc == "Discarded handled."
+    assert "Discarded / Out-of-Scope Papers" in sent_payloads[-1]["text"]
+    assert "2609.99999" in sent_payloads[-1]["text"]
+    assert "Embedding similarity below threshold" in sent_payloads[-1]["text"]
+
+    # 3. Test /similar command
+    res_sim = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "/similar"}
+    })
+    assert res_sim == "Similar handled."
+    assert "Similar & Thesis-Aligned" in sent_payloads[-1]["text"]
+    assert "2410.05229" in sent_payloads[-1]["text"]
+
+    # 4. Test button tap "📚 Review History"
+    res_btn_hist = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "📚 Review History"}
+    })
+    assert res_btn_hist == "History handled."
+
+    # 5. Test button tap "🚫 Discarded Papers"
+    res_btn_disc = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "🚫 Discarded Papers"}
+    })
+    assert res_btn_disc == "Discarded handled."
+
+    # 6. Test button tap "🟢 Similar Papers"
+    res_btn_sim = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "🟢 Similar Papers"}
+    })
+    assert res_btn_sim == "Similar handled."
+
+    # 7. Test conversational query: "How many literature papers reviewed?"
+    res_q_count = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "How many literature papers reviewed?"}
+    })
+    assert res_q_count == "Chat handled."
+    assert "Total Papers Reviewed: `2`" in sent_payloads[-1]["text"]
+    assert "Similar / Thesis-Aligned: `1`" in sent_payloads[-1]["text"]
+    assert "Discarded / Out-of-Scope: `1`" in sent_payloads[-1]["text"]
+
+    # 8. Test conversational query: "Which papers did you discard and why?"
+    res_q_disc = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "Which papers did you discard and why?"}
+    })
+    assert res_q_disc == "Chat handled."
+    assert "Discarded / Out-of-Scope Papers" in sent_payloads[-1]["text"]
+    assert "Embedding similarity below threshold" in sent_payloads[-1]["text"]
+

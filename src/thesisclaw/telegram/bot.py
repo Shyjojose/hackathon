@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,17 @@ from thesisclaw.config.settings import settings
 from thesisclaw.models.paper import VerdictEnum
 
 logger = logging.getLogger(__name__)
+
+
+def get_lan_ip() -> str:
+    """Detect local network IP for mobile device access on Wi-Fi."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.settimeout(0.5)
+            s.connect(("8.8.8.8", 80))
+            return str(s.getsockname()[0])
+    except Exception:  # noqa: BLE001
+        return "127.0.0.1"
 
 
 class TelegramBotClient:
@@ -88,21 +100,29 @@ class TelegramBotClient:
         return user_id in allowed
 
     def get_base_page_url(self) -> str:
-        """Resolve current reachable URL for paper dashboards."""
+        """Resolve current reachable URL for paper dashboards (tunnel or mobile Wi-Fi LAN IP)."""
         raw_domain = settings.mcp_tunnel_domain.split("#")[0].strip()
         if raw_domain:
             if not raw_domain.startswith(("http://", "https://")):
                 return f"https://{raw_domain}"
             return raw_domain
-        return f"http://{settings.mcp_host}:{settings.mcp_port}"
+        host = settings.mcp_host
+        if host in ("127.0.0.1", "0.0.0.0", "localhost"):
+            lan_ip = get_lan_ip()
+            return f"http://{lan_ip}:{settings.mcp_port}"
+        return f"http://{host}:{settings.mcp_port}"
 
     def get_welcome_card(self) -> tuple[str, dict[str, Any]]:
         """Return the first-message directory with all communication tags and quick reply markup."""
+        lan_ip = get_lan_ip()
         msg = (
             "👋 **Welcome to ThesisClaw!**\n\n"
             "I am your autonomous research partner monitoring academic literature for your "
             "Raspberry Pi 5 Edge AI thesis.\n\n"
             "🏷️ **Communication Tags & Commands:**\n"
+            "• `/history` — Full chronological log of all reviewed research papers\n"
+            "• `/similar` — List of papers found similar / aligned with thesis\n"
+            "• `/discarded` — List of discarded / out-of-scope papers with rejection reasons\n"
             "• `/links` — View count of processed papers & direct HTML dashboard links\n"
             "• `/papers` — Open the 4-tab interactive literature dashboard gallery\n"
             "• `/briefing` — Generate or fetch the latest literature scan briefing\n"
@@ -113,61 +133,171 @@ class TelegramBotClient:
             "💬 **Ways to Interact:**\n"
             "• **arXiv Links:** Paste any arXiv link (e.g. `https://arxiv.org/abs/2410.05229`) "
             "to run an instant deep analysis, generate a 4-tab dashboard, and receive the offline `.html` document.\n"
-            "• **AI Research Chat:** Send any question or thought to chat with your thesis-grounded "
-            "AI advisor (powered by NVIDIA Nemotron).\n"
+            "• **AI Research Chat:** Ask questions like *'How many papers have been reviewed?'*, "
+            "*'Which papers were discarded and why?'*, or *'Explain INT4 quantization'*.\n"
             "• **Voice Companion:** Speak with the XiaoZhi ESP32-S3 voice bridge for hands-free queries.\n"
             "• **Approval Gate:** Review and approve proposed experiments at `/notes`.\n\n"
+            f"📱 **Mobile Browser on Wi-Fi:** Open `http://{lan_ip}:{settings.mcp_port}/papers/`\n\n"
             "Tap any quick button below or type a message to start!"
         )
         reply_markup = {
             "keyboard": [
-                [{"text": "🔗 Paper Links"}, {"text": "📰 Briefing"}],
-                [{"text": "⚙️ Agent Status"}, {"text": "🎯 View Thesis"}],
-                [{"text": "📚 Paper Gallery"}, {"text": "🔬 Approval Gate"}],
+                [{"text": "📚 Review History"}, {"text": "🔗 Paper Links"}],
+                [{"text": "🟢 Similar Papers"}, {"text": "🚫 Discarded Papers"}],
+                [{"text": "📰 Briefing"}, {"text": "🎯 View Thesis"}],
+                [{"text": "⚙️ Agent Status"}, {"text": "🔬 Approval Gate"}],
             ],
             "resize_keyboard": True,
             "is_persistent": True,
         }
         return msg, reply_markup
 
+    def get_review_history(self) -> list[dict[str, Any]]:
+        """Fetch all processed papers from SQLite checkpoint DB ordered by date."""
+        db_file = Path(f"{settings.checkpoints_dir}/thesisclaw.sqlite3")
+        if not db_file.exists():
+            return []
+        with sqlite3.connect(db_file) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT arxiv_id, title, verdict, confidence, reason, backed_ratio, processed_at "
+                    "FROM processed_papers ORDER BY processed_at DESC"
+                )
+                return [dict(r) for r in cur.fetchall()]
+            except sqlite3.OperationalError:
+                return []
+
+    def get_discarded_papers(self) -> list[dict[str, Any]]:
+        """Fetch all papers discarded / deemed irrelevant to the thesis."""
+        return [
+            p
+            for p in self.get_review_history()
+            if str(p.get("verdict", "")).lower() == "irrelevant"
+        ]
+
+    def get_similar_papers(self) -> list[dict[str, Any]]:
+        """Fetch all papers that support, extend, or threaten the thesis."""
+        return [
+            p
+            for p in self.get_review_history()
+            if str(p.get("verdict", "")).lower() in ("support", "extend", "threaten")
+        ]
+
     def get_processed_papers_summary(self, limit: int = 10) -> dict[str, Any]:
         """Fetch total count, verdict breakdown, and recent papers from SQLite checkpoint DB."""
-        db_file = Path(f"{settings.checkpoints_dir}/thesisclaw.sqlite3")
-        total_papers = 0
+        history = self.get_review_history()
+        total_papers = len(history)
         verdicts: dict[str, int] = {"support": 0, "extend": 0, "threaten": 0, "irrelevant": 0}
-        recent_papers: list[dict[str, Any]] = []
-
-        if db_file.exists():
-            with sqlite3.connect(db_file) as conn:
-                conn.row_factory = sqlite3.Row
-                cur = conn.cursor()
-                try:
-                    cur.execute("SELECT COUNT(*) FROM processed_papers")
-                    row = cur.fetchone()
-                    total_papers = row[0] if row else 0
-
-                    cur.execute(
-                        "SELECT verdict, COUNT(*) as cnt FROM processed_papers GROUP BY verdict"
-                    )
-                    for r in cur.fetchall():
-                        v_key = str(r["verdict"]).lower()
-                        verdicts[v_key] = verdicts.get(v_key, 0) + r["cnt"]
-
-                    cur.execute(
-                        "SELECT arxiv_id, title, verdict, reason, processed_at "
-                        "FROM processed_papers ORDER BY processed_at DESC LIMIT ?",
-                        (limit,),
-                    )
-                    for r in cur.fetchall():
-                        recent_papers.append(dict(r))
-                except sqlite3.OperationalError:
-                    pass
+        for r in history:
+            v_key = str(r.get("verdict", "")).lower()
+            verdicts[v_key] = verdicts.get(v_key, 0) + 1
 
         return {
             "total": total_papers,
             "verdicts": verdicts,
-            "recent": recent_papers,
+            "recent": history[:limit],
         }
+
+    def format_history_message(self) -> str:
+        """Format full chronological review history."""
+        history = self.get_review_history()
+        if not history:
+            return "📚 **Review History:** No research papers evaluated yet."
+
+        total = len(history)
+        support_cnt = sum(1 for p in history if str(p.get("verdict", "")).lower() == "support")
+        extend_cnt = sum(1 for p in history if str(p.get("verdict", "")).lower() == "extend")
+        threaten_cnt = sum(1 for p in history if str(p.get("verdict", "")).lower() == "threaten")
+        discarded_cnt = sum(1 for p in history if str(p.get("verdict", "")).lower() == "irrelevant")
+
+        lines = [
+            f"📚 **ThesisClaw Literature Review History ({total} Total Papers)**\n",
+            f"• 🟢 **Similar / Supporting:** `{support_cnt}`",
+            f"• 🟡 **Extending Claims:** `{extend_cnt}`",
+            f"• 🔴 **Threatening Claims:** `{threaten_cnt}`",
+            f"• ⚪ **Discarded / Out-of-Scope:** `{discarded_cnt}`\n",
+            "**Chronological Review Log:**",
+        ]
+
+        base_url = self.get_base_page_url()
+        for i, p in enumerate(history, 1):
+            aid = p["arxiv_id"]
+            verd = str(p.get("verdict", "")).lower()
+            badge = {
+                "support": "🟢 [SUPPORTS]",
+                "extend": "🟡 [EXTENDS]",
+                "threaten": "🔴 [THREATENS]",
+                "irrelevant": "⚪ [DISCARDED]",
+            }.get(verd, "ℹ️")
+            title = p.get("title", f"arXiv:{aid}")
+            reason = p.get("reason", "No reason recorded.")
+            lines.append(f"{i}. {badge} **{title}** (arXiv:{aid})\n   _Reason:_ {reason}")
+            if verd != "irrelevant":
+                lines.append(f"   🔗 {base_url}/papers/{aid}/")
+
+        return "\n".join(lines)
+
+    def format_discarded_message(self) -> str:
+        """Format list of discarded / irrelevant papers with reasons."""
+        discarded = self.get_discarded_papers()
+        if not discarded:
+            return "⚪ **Discarded Papers:** None discarded so far. All evaluated papers were thesis-relevant."
+
+        lines = [
+            f"🚫 **Discarded / Out-of-Scope Papers ({len(discarded)} total)**\n",
+            "These papers were screened and discarded because they fall outside our Raspberry Pi 5 Edge AI thesis boundaries:\n",
+        ]
+        for i, p in enumerate(discarded, 1):
+            aid = p["arxiv_id"]
+            title = p.get("title", f"arXiv:{aid}")
+            reason = p.get("reason", "Irrelevant to thesis claim.")
+            lines.append(f"{i}. ⚪ **{title}** (arXiv:{aid})\n   • **Why Discarded:** {reason}")
+
+        return "\n".join(lines)
+
+    def format_similar_message(self) -> tuple[str, dict[str, Any] | None]:
+        """Format list of similar / thesis-aligned papers with interactive links."""
+        similar = self.get_similar_papers()
+        if not similar:
+            return (
+                "🟢 **Similar Papers:** No thesis-aligned papers found yet. Send an arXiv link to evaluate one!",
+                None,
+            )
+
+        base_url = self.get_base_page_url()
+        lines = [
+            f"🟢 **Similar & Thesis-Aligned Research Papers ({len(similar)} total)**\n",
+            "These papers validate, extend, or directly impact our edge ASR quantization claims:\n",
+        ]
+
+        inline_buttons: list[list[dict[str, Any]]] = []
+        for i, p in enumerate(similar, 1):
+            aid = p["arxiv_id"]
+            title = p.get("title", f"arXiv:{aid}")
+            verd = str(p.get("verdict", "")).lower()
+            badge = {
+                "support": "🟢 [SUPPORTS]",
+                "extend": "🟡 [EXTENDS]",
+                "threaten": "🔴 [THREATENS]",
+            }.get(verd, "🟢")
+            reason = p.get("reason", "Validates benchmark claims.")
+            p_url = f"{base_url}/papers/{aid}/"
+            lines.append(
+                f"{i}. {badge} **{title}** (arXiv:{aid})\n   • **Finding:** {reason}\n   • 🔗 {p_url}"
+            )
+
+            if i <= 4:
+                short_title = title[:24] + "..." if len(title) > 24 else title
+                btn_text = f"{badge[:2]} {aid}: {short_title}"
+                if base_url.startswith("https://"):
+                    inline_buttons.append([{"text": btn_text, "web_app": {"url": p_url}}])
+                else:
+                    inline_buttons.append([{"text": btn_text, "url": p_url}])
+
+        reply_markup = {"inline_keyboard": inline_buttons} if inline_buttons else None
+        return "\n".join(lines), reply_markup
 
     def format_links_message(self) -> tuple[str, dict[str, Any] | None]:
         """Format processed papers count, breakdown, and direct HTML links."""
@@ -176,6 +306,7 @@ class TelegramBotClient:
         verdicts = summary["verdicts"]
         recent = summary["recent"]
         base_url = self.get_base_page_url()
+        lan_ip = get_lan_ip()
 
         lines = [
             "📚 **ThesisClaw Processed Research Papers & Links**\n",
@@ -185,6 +316,7 @@ class TelegramBotClient:
             f"• 🔴 **Threatens Thesis:** `{verdicts.get('threaten', 0)}`",
             f"• ⚪ **Irrelevant:** `{verdicts.get('irrelevant', 0)}`\n",
             f"🏛️ **Master Paper Gallery:**\n👉 {base_url}/papers/\n",
+            f"📱 **Mobile LAN URL:** `http://{lan_ip}:{settings.mcp_port}/papers/`\n",
         ]
 
         inline_buttons: list[list[dict[str, Any]]] = []
@@ -249,17 +381,40 @@ class TelegramBotClient:
         )
 
     async def chat_with_agent(self, user_text: str, chat_id: int) -> str:
-        """Provide intelligent academic research responses grounded in thesis memory."""
-        # 1. Check if user is asking for links or paper count
+        """Provide intelligent academic research responses grounded in thesis memory and review logs."""
         lower = user_text.lower()
-        if any(w in lower for w in ["how many papers", "paper links", "show papers", "list papers"]):
+
+        # 1. Direct intent recognition for review history, discarded papers, and similar papers
+        if any(w in lower for w in ["how many papers", "paper count", "number of papers", "literature papers reviewed"]):
+            summary = self.get_processed_papers_summary()
+            discarded = len(self.get_discarded_papers())
+            similar = len(self.get_similar_papers())
+            return (
+                f"📚 **Literature Review Summary:**\n"
+                f"• Total Papers Reviewed: `{summary['total']}`\n"
+                f"• 🟢 Similar / Thesis-Aligned: `{similar}`\n"
+                f"• ⚪ Discarded / Out-of-Scope: `{discarded}`\n\n"
+                "Use `/history` to view the full audit log, `/similar` for aligned papers, or `/discarded` for rejected papers!"
+            )
+
+        if any(w in lower for w in ["discarded", "rejected", "which papers did you discard", "why discarded"]):
+            return self.format_discarded_message()
+
+        if any(w in lower for w in ["which papers are similar", "similar papers", "aligned papers", "papers found similar"]):
+            msg, _ = self.format_similar_message()
+            return msg
+
+        if any(w in lower for w in ["history", "review history", "reviews", "list all papers", "audit log"]):
+            return self.format_history_message()
+
+        if any(w in lower for w in ["paper links", "show papers", "list papers"]):
             msg, _ = self.format_links_message()
             return msg
 
         if any(w in lower for w in ["what is your thesis", "thesis topic", "thesis claim"]):
             return self.format_thesis_message()
 
-        # 2. Try ChatNVIDIA
+        # 2. Grounded LLM Chat (ChatNVIDIA)
         llm = get_llm_client()
         if llm:
             try:
@@ -273,16 +428,35 @@ class TelegramBotClient:
                 soul_path = Path("runtime/openclaw/workspace/SOUL.md")
                 soul_text = soul_path.read_text(encoding="utf-8") if soul_path.exists() else ""
 
+                history = self.get_review_history()
+                discarded = self.get_discarded_papers()
+                similar = self.get_similar_papers()
+                discarded_items = [
+                    f"arXiv:{p['arxiv_id']} ({p.get('reason', '')})" for p in discarded[:5]
+                ]
+                discarded_str = ", ".join(discarded_items)
+                similar_items = [f"arXiv:{p['arxiv_id']} ({p['verdict']})" for p in similar[:5]]
+                similar_str = ", ".join(similar_items)
+
+                review_context = (
+                    "## Live Database Review State:\n"
+                    f"- Total evaluated papers: {len(history)}\n"
+                    f"- Discarded papers ({len(discarded)}): {discarded_str}\n"
+                    f"- Similar papers ({len(similar)}): {similar_str}\n"
+                )
+
                 system_prompt = (
                     f"{soul_text}\n\n"
                     f"## Researcher Memory & Thesis Claims:\n{memory_text}\n\n"
+                    f"{review_context}\n\n"
                     "Instructions: Answer concisely (under 600 chars if practical for edge displays), "
-                    "intellectually honest, grounded strictly in the thesis and ARM Cortex-A76 / RPi5 constraints."
+                    "intellectually honest, grounded strictly in the thesis, literature review history, "
+                    "and ARM Cortex-A76 / RPi5 constraints."
                 )
 
-                history = self.chat_history.get(chat_id, [])
+                chat_hist = self.chat_history.get(chat_id, [])
                 messages = [SystemMessage(content=system_prompt)]
-                for msg in history[-6:]:
+                for msg in chat_hist[-6:]:
                     if msg.get("role") == "user":
                         messages.append(HumanMessage(content=msg.get("content", "")))
                     elif msg.get("role") == "assistant":
@@ -345,6 +519,9 @@ class TelegramBotClient:
         url = f"{self.base_url}/setMyCommands"
         commands = [
             {"command": "start", "description": "Welcome guide & all communication tags"},
+            {"command": "history", "description": "Full literature review history & counts"},
+            {"command": "similar", "description": "List papers matching/extending thesis"},
+            {"command": "discarded", "description": "List discarded papers with rejection reasons"},
             {"command": "links", "description": "Processed research papers count & HTML links"},
             {"command": "papers", "description": "Interactive 4-tab literature gallery"},
             {"command": "briefing", "description": "Latest literature scan briefing"},
@@ -387,6 +564,24 @@ class TelegramBotClient:
             await self.send_message(chat_id, msg, reply_markup=reply_markup)
             if text.startswith(("/start", "/help")) or text.lower() in ["hi", "hello", "hey"]:
                 return "Start handled."
+
+        # Command /history or /reviews or button tap
+        if text.startswith(("/history", "/reviews")) or text == "📚 Review History":
+            msg = self.format_history_message()
+            await self.send_message(chat_id, msg)
+            return "History handled."
+
+        # Command /discarded or /rejected or button tap
+        if text.startswith(("/discarded", "/rejected")) or text == "🚫 Discarded Papers":
+            msg = self.format_discarded_message()
+            await self.send_message(chat_id, msg)
+            return "Discarded handled."
+
+        # Command /similar or /relevant or button tap
+        if text.startswith(("/similar", "/relevant")) or text == "🟢 Similar Papers":
+            msg, reply_markup = self.format_similar_message()
+            await self.send_message(chat_id, msg, reply_markup=reply_markup)
+            return "Similar handled."
 
         # Command /links or button tap
         if text.startswith("/links") or text == "🔗 Paper Links":
@@ -461,16 +656,6 @@ class TelegramBotClient:
             briefing = await self.orchestrator.run_batch_evaluation([])
             await self.send_message(chat_id, briefing.telegram_briefing)
             return "Briefing handled."
-
-        # Quick button "💡 Ask Question"
-        if text == "💡 Ask Question":
-            await self.send_message(
-                chat_id,
-                "💡 **Ask Me Anything!**\n\n"
-                "Feel free to ask questions about our thesis claims, INT4 quantization, ARM NEON SIMD, "
-                "or Moonshine Tiny. You can also paste any arXiv URL to evaluate it.",
-            )
-            return "Question prompt handled."
 
         # Check if text contains an arXiv link
         if "arxiv.org" in text or "arxiv:" in text.lower():
@@ -579,6 +764,7 @@ async def run_telegram_polling(poll_interval: float = 2.0) -> None:
     logger.info("Starting Telegram long polling for ThesisClaw...")
     print("\n🤖 ThesisClaw Telegram Bot is ACTIVE and listening!")
     print(f"Allowlisted User IDs: {settings.get_allowed_telegram_ids() or 'ALL (Open Dev Mode)'}")
+    print(f"Mobile Reachable Base URL: {bot.get_base_page_url()}")
     print("Press Ctrl+C to stop.\n")
 
     offset = 0

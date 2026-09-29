@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # ── Model Context Protocol (MCP) ──────────────────────────────────────────
     mcp_bearer_token: str = "dev-mcp-token-thesisclaw"
     voice_mcp_bearer_token: str = "dev-voice-token-thesisclaw"
-    mcp_host: str = "127.0.0.1"
+    mcp_host: str = "0.0.0.0"
     mcp_port: int = 8080
     mcp_tunnel_domain: str = ""
 

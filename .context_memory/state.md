@@ -14,13 +14,17 @@
 - [x] **Milestone 9: Final Quality Gate & Test Suite Pass** (Completed: commit `78733f0`)
 - [x] **Feature: Interactive Educational Webpages & Telegram Link Forwarding** (Completed: commit `ee4708d`)
 - [x] **Feature: Educational Literature Gallery `/papers` & `/papers/`** (Completed: commit `4a7067c`, `adadd39`)
+- [x] **Feature: 3-Tab Subfolder `index.html` with Alpine.js & Architecture Flowchart** (Completed: commit `e20c7f2`)
 
 ---
 
 ## Final Verification Summary
-- **Tests**: 41 unit tests passing across all packages (`tests/unit/`).
+- **Tests**: 43 unit tests passing across all packages (`tests/unit/`).
 - **Linter**: `ruff check` 100% clean with zero warnings or errors.
-- **Educational Pages & Gallery**:
-  - `site/public/papers/{arxiv_id}.html` generates modern card UI with ELI5 breakdown, Jargon Buster, and Next Experiment.
-  - Web routes: `GET /papers` & `GET /papers/` list all evaluated papers in a gallery; `GET /papers/{arxiv_id}` serves the individual interactive breakdowns.
-  - Telegram bot automatically includes the clickable link in reply messages.
+- **Educational Pages & Subfolder Structure**:
+  - `site/public/papers/{arxiv_id}/index.html` generates a self-contained 3-tab interactive breakdown with 100% locally vendored Alpine.js (`site/public/papers/assets/alpine.min.js`).
+  - **Tab 1: Similarity & Novel Ideas:** Similarity score gauge, verdict rationale, novel ideas cards, and thesis baseline comparison.
+  - **Tab 2: Picturefy & Flowchart:** Simplified ELI5 overview and visual pipeline flowchart cards with connectors and hardware tags.
+  - **Tab 3: Key Takeaways & Experiment:** Core takeaways, verified quote block, next hardware benchmark test, and APA citation.
+  - Web routes: `GET /papers` lists all evaluated papers; `GET /papers/{arxiv_id}` & `GET /papers/{arxiv_id}/` serve the 3-tab subfolder page.
+  - Telegram bot: automatically attaches the `index.html` file directly to the chat for offline viewing (`sendDocument`) and provides inline WebApp / browser buttons.

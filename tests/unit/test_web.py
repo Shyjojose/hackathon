@@ -58,3 +58,16 @@ def test_web_notes_and_approval_flow(tmp_path, monkeypatch):
         cur.execute("SELECT status FROM pending_approvals WHERE job_id = 'appr-test'")
         status = cur.fetchone()[0]
         assert status == "approved"
+
+
+def test_web_papers_gallery():
+    client = TestClient(app)
+    # Test without trailing slash
+    resp = client.get("/papers")
+    assert resp.status_code == 200
+    assert "Evaluated Literature Gallery" in resp.text
+
+    # Test with trailing slash
+    resp_slash = client.get("/papers/")
+    assert resp_slash.status_code == 200
+    assert "Evaluated Literature Gallery" in resp_slash.text

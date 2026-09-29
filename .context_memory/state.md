@@ -15,16 +15,22 @@
 - [x] **Feature: Interactive Educational Webpages & Telegram Link Forwarding** (Completed: commit `ee4708d`)
 - [x] **Feature: Educational Literature Gallery `/papers` & `/papers/`** (Completed: commit `4a7067c`, `adadd39`)
 - [x] **Feature: 3-Tab Subfolder `index.html` with Alpine.js & Architecture Flowchart** (Completed: commit `e20c7f2`)
+- [x] **Feature: 4-Tab Dynamic Research Dashboard with Local Mermaid, Chart.js, Tailwind, & Alpine** (Completed: commit `79efcbb`)
 
 ---
 
 ## Final Verification Summary
 - **Tests**: 43 unit tests passing across all packages (`tests/unit/`).
 - **Linter**: `ruff check` 100% clean with zero warnings or errors.
-- **Educational Pages & Subfolder Structure**:
-  - `site/public/papers/{arxiv_id}/index.html` generates a self-contained 3-tab interactive breakdown with 100% locally vendored Alpine.js (`site/public/papers/assets/alpine.min.js`).
-  - **Tab 1: Similarity & Novel Ideas:** Similarity score gauge, verdict rationale, novel ideas cards, and thesis baseline comparison.
-  - **Tab 2: Picturefy & Flowchart:** Simplified ELI5 overview and visual pipeline flowchart cards with connectors and hardware tags.
-  - **Tab 3: Key Takeaways & Experiment:** Core takeaways, verified quote block, next hardware benchmark test, and APA citation.
-  - Web routes: `GET /papers` lists all evaluated papers; `GET /papers/{arxiv_id}` & `GET /papers/{arxiv_id}/` serve the 3-tab subfolder page.
-  - Telegram bot: automatically attaches the `index.html` file directly to the chat for offline viewing (`sendDocument`) and provides inline WebApp / browser buttons.
+- **Educational Pages & 4-Tab Dynamic Dashboard**:
+  - `site/public/papers/{arxiv_id}/index.html` generates a rich, interactive research dashboard utilizing 4 locally vendored frontend powerhouses (`site/public/papers/assets/`):
+    - `alpine.min.js`: Reactive tabs, ELI5/Deep Dive switcher, clipboard copy
+    - `tailwind.js`: Modern utility classes, gradients, and responsive cards
+    - `mermaid.min.js`: Dynamic SVG rendering of model architecture and audio streaming sequence diagrams
+    - `chart.min.js`: Interactive canvas charts plotting WER vs. RTF tradeoffs and Raspberry Pi 5 RAM footprint
+  - **Tab 1: 🎯 Alignment & Novel Ideas:** Similarity gauge, verdict status, novel mechanisms cards, thesis comparison matrix, and ELI5/Deep Dive switcher.
+  - **Tab 2: 🖼️ Architecture & Pipeline:** Live Mermaid architecture flowchart, streaming sequence diagram, and Jargon Buster grid.
+  - **Tab 3: 📊 Tradeoffs & Benchmarks:** Interactive Chart.js charts (RTF vs. WER tradeoff and edge RAM usage) with hardware metrics.
+  - **Tab 4: 🧪 Experiment & Citations:** Essential key takeaways, RPi5 benchmark instructions, verified evidence quote, and one-click copyable APA citation.
+  - Web routes: `GET /papers` gallery and `GET /papers/{arxiv_id}` / `/papers/{arxiv_id}/` serve the dynamic 4-tab subfolder dashboard.
+  - Telegram bot: dual-delivery via offline document attachment (`sendDocument`) and native in-app WebApp button.

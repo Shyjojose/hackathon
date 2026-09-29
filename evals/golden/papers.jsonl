@@ -1,0 +1,7 @@
+# Golden Eval Set — ThesisClaw
+# Format: one JSON object per line.
+# Fields: arxiv_id (string), label (support|extend|threaten|irrelevant), notes (string)
+# Target: 30 labeled papers. Fill in before running evals.
+#
+# Example:
+# {"arxiv_id": "2404.12345", "label": "support", "notes": "Directly validates the INT4 quantisation claim on ARM Cortex-M."}

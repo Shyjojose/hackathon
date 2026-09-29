@@ -1,0 +1,46 @@
+[project]
+name = "thesisclaw"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "Long-running literature agent for the NVIDIA Claw Agent Challenge"
+dependencies = [
+    "deepagents>=0.7.19,<0.8",
+    "langchain-nvidia-ai-endpoints>=1.4.3,<2",
+    "langgraph-checkpoint-sqlite",
+    "mcp[cli]>=2.2,<3",
+    "fastapi",
+    "httpx",
+    "uvicorn[standard]",
+    "tenacity",
+    "arxiv",
+    "beautifulsoup4",
+    "lxml",
+    "numpy",
+    "jinja2",
+    "pydantic-settings",
+    "pygithub",
+]
+
+[project.optional-dependencies]
+# AGPL licence — keep private until submission
+pdf = ["pymupdf4llm"]
+# Backup Telegram bot if NemoClaw fails
+fallback = ["python-telegram-bot"]
+
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "respx", "ruff"]
+
+[tool.pytest.ini_options]
+markers = [
+    "live: requires live API keys (skipped in CI)",
+    "slow: takes more than 5 s",
+]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

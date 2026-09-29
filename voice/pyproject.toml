@@ -1,0 +1,17 @@
+# Standalone uv project — NOT part of the root uv workspace.
+# Kept separate because mcp_pipe.py requires MCP SDK v1,
+# which conflicts with the worker's MCP SDK v2 requirement.
+# Run: cd voice && uv sync
+
+[project]
+name = "thesisclaw-voice"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "XiaoZhi ESP32-S3 voice bridge for ThesisClaw (MCP SDK v1)"
+dependencies = [
+    "websockets",
+    "python-dotenv",
+    "mcp>=1.28,<2",
+    "pydantic",
+    "mcp-proxy",
+]

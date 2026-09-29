@@ -1,0 +1,9 @@
+{
+  "hooks": [
+    {
+      "event": "pre-tool",
+      "script": "python scripts/hooks/guard.py",
+      "description": "Blocks dangerous commands before the agent runs them."
+    }
+  ]
+}

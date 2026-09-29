@@ -40,51 +40,118 @@ Generic AI summarizers produce generic abstracts. **ThesisClaw is fundamentally 
 
 ---
 
-## 🏛️ System Architecture
+## 🏛️ System Architecture & Information Flow
 
-ThesisClaw couples a system-level conversational interface with an isolated multi-subagent analysis engine and a physical edge hardware companion:
+ThesisClaw couples a system-level conversational interface with an isolated multi-subagent analysis engine and a physical edge hardware companion.
+
+### 🔄 End-to-End Information Flow
+
+The diagram below maps the complete path of information through ThesisClaw: from paper ingestion and user commands, through the Model Context Protocol (MCP) gateway layer, into the **Deep Agents Orchestrator** and its sequential subagent pipeline, and out to storage, human verification gates, and client channels.
 
 ```mermaid
 flowchart TD
-    subgraph Host Laptop Environment [Laptop Host OS - No Virtual Environment]
-        OpenClaw["OpenClaw Gateway (System-Level Node CLI)<br>runtime/openclaw/workspace"]
-        UserTG["Telegram User"] <-->|Bot API| OpenClaw
+    %% Trigger & Input Sources
+    subgraph Ingestion ["1. Trigger & Ingestion Layer"]
+        Arxiv["arXiv Preprint Firehose<br>(Nightly Scan / Backfill Jobs)"]
+        UserTG["Telegram User<br>(Direct link, query, or /briefing)"]
+        XiaoZhi["ESP32-S3 Physical Companion<br>(Voice queries via XiaoZhi firmware)"]
+        ThesisMemory[("Central Thesis Profile<br>research/agent.md<br>(RPi5 Moonshine INT4 Baseline)")]
     end
 
-    subgraph Worker Runtime [Isolated uv Python 3.12 Environment]
-        MCPServer["MCP Streamable HTTP Server (:8080)<br>/mcp and /voice-mcp"]
-        Orchestrator["Deep Agents ThesisOrchestrator"]
-        
-        subgraph Subagents [5 Specialized Subagents]
-            Reader["1. paper-reader (claims & quotes)"]
-            Matcher["2. thesis-matcher (cosine distance)"]
-            Critic["3. critic (quote verification >=90%)"]
-            Pathfinder["4. pathfinder (experiment & APA citation)"]
-            Publisher["5. publisher (briefings & stats)"]
+    %% Gateway & Interface Layer
+    subgraph Gateways ["2. Gateway & Protocol Layer"]
+        OpenClaw["OpenClaw Gateway<br>(Host Node CLI, Telegram Bot API)"]
+        VoiceBridge["Voice Bridge (voice/src/mcp_pipe.py)<br>(FastMCP v1, <=600 chars)"]
+        MCPServer["Unified MCP Streamable HTTP Server (:8080)<br>(/mcp, /voice-mcp, /notes, /stats)"]
+    end
+
+    %% Deep Agents Core Orchestration
+    subgraph DeepAgentsCore ["3. Deep Agents Worker Core (Python 3.12 / uv)"]
+        Orch["ThesisOrchestrator (src/thesisclaw/agent/orchestrator.py)<br>• Token budget management<br>• Subagent delegation<br>• Resumable checkpoints"]
+
+        subgraph Subagents ["Sequential Subagents Pipeline"]
+            Reader["Subagent 1: paper-reader<br>• Fetches HTML / PDF<br>• Extracts claims & verbatim quotes"]
+            Matcher["Subagent 2: thesis-matcher<br>• NVIDIA text embeddings<br>• Cosine similarity vs research/agent.md<br>• Verdict: SUPPORT / EXTEND / THREATEN / IRRELEVANT"]
+            Critic["Subagent 3: critic (Hallucination Firewall)<br>• Verifies verbatim quote presence<br>• Requires >=90% quote backing"]
+            Pathfinder["Subagent 4: pathfinder<br>• Designs RPi5 benchmark experiment<br>• Generates APA-style citable text<br>• Proposes code PR (if EXTEND/THREATEN)"]
+            Publisher["Subagent 5: publisher<br>• Assembles daily morning briefings<br>• Truncates voice text (<=600 chars)"]
         end
-        
-        Storage[("SQLite Checkpoints & Memory<br>checkpoints/thesisclaw.sqlite3")]
+
+        NIM["NVIDIA Build Cloud (NIM)<br>• Llama-3.1-Nemotron-70B / 340B<br>• NVIDIA Embeddings"]
     end
 
-    subgraph Edge Hardware [Desk Companion]
-        ESP32["ESP32-S3 (XiaoZhi Firmware)<br>/Users/shyjojose/esp32"]
-        VoiceBridge["voice/src/mcp_pipe.py<br>(FastMCP v1, <=600 chars)"]
-        ESP32 <-->|USB / Local Wi-Fi| VoiceBridge
+    %% Storage & Gate
+    subgraph Persistence ["4. State, Checkpoints & Human Gate"]
+        DB[("SQLite Database<br>checkpoints/thesisclaw.sqlite3<br>• processed_papers<br>• pending_approvals")]
+        HumanGate{"Human Approval Gate<br>(Web UI: :8080/notes)"}
     end
 
-    subgraph NVIDIA Cloud
-        NIM["NVIDIA Build NIM (integrate.api.nvidia.com)<br>Llama-3.1-Nemotron-70B & Nemotron-4-340B"]
+    %% Delivery Channels
+    subgraph Delivery ["5. Output & Delivery Channels"]
+        TGBot["Telegram Bot<br>(Rich Markdown Daily Briefing)"]
+        VoiceAudio["XiaoZhi Speaker<br>(Concise Voice Briefing)"]
+        JudgeSite["Static Public Dashboard<br>(site/public/index.html & stats.json)"]
+        GitHubPR["GitHub Pull Request<br>(Code modifications)"]
     end
 
-    OpenClaw <-->|MCP JSON-RPC over HTTP| MCPServer
+    %% Connections
+    Arxiv -->|Paper URLs| Orch
+    UserTG <-->|Chat / Commands| OpenClaw
+    XiaoZhi <-->|Audio / WiFi| VoiceBridge
+    
+    OpenClaw <-->|MCP JSON-RPC| MCPServer
     VoiceBridge <-->|Voice MCP HTTP| MCPServer
-    MCPServer <--> Orchestrator
-    Orchestrator --> Subagents
-    Orchestrator <--> Storage
-    Subagents <-->|Inference & Embeddings| NIM
+    MCPServer <--> Orch
+
+    Orch -->|1. URL / ID| Reader
+    Reader -->|Parsed PaperContent| Matcher
+    ThesisMemory -.->|Thesis Context| Matcher
+    Matcher -->|PaperVerdict| Critic
+    Critic -->|Pass: backed_ratio >= 0.90| Pathfinder
+    Pathfinder -->|Experiment & APA Citation| Orch
+    Orch -->|All Processed Papers| Publisher
+
+    %% NVIDIA LLM calls
+    Reader -.-> NIM
+    Matcher -.-> NIM
+    Critic -.-> NIM
+    Pathfinder -.-> NIM
+
+    %% Checkpoints & Approvals
+    Orch <-->|Deduplication & Resume| DB
+    Pathfinder -->|If code change proposed| DB
+    DB <-->|Pending Actions| HumanGate
+    HumanGate -->|Approved by Human Click| GitHubPR
+
+    %% Publishing
+    Publisher -->|Telegram format| TGBot
+    Publisher -->|Voice format <=600 chars| VoiceAudio
+    Publisher -->|Metrics & Counts| JudgeSite
 ```
 
-### ⚡ Key Architectural Separation: Host OpenClaw vs. Worker
+### 🤖 What are Deep Agents?
+
+In ThesisClaw, **Deep Agents** refers to the modular, stateful multi-agent system architecture running inside an isolated Python virtual environment managed by [`uv`](file:///Users/shyjojose/Hackathon/pyproject.toml).
+
+Instead of relying on a single monolithic prompt that attempts to parse, reason, verify, and format literature simultaneously (which causes context overflow, hallucinations, and loss of constraints), Deep Agents enforces:
+1. **Separation of Concerns:** Each discrete step in the literature pipeline is handled by an isolated subagent with its own dedicated system prompt in [`runtime/worker/prompts/`](file:///Users/shyjojose/Hackathon/runtime/worker/prompts/).
+2. **Deterministic Checkpointing:** Powered by [`ThesisOrchestrator`](file:///Users/shyjojose/Hackathon/src/thesisclaw/agent/orchestrator.py) and SQLite ([`checkpoints/thesisclaw.sqlite3`](file:///Users/shyjojose/Hackathon/checkpoints)), preserving evaluation state across system restarts, process kills, or network interruptions.
+3. **Token Budgeting:** A strict per-job token budget (`ORCHESTRATOR_TOKEN_BUDGET`, default 200,000 tokens) prevents runaway API bills; if approaching limits, the orchestrator halts and emits partial briefings.
+4. **Human-in-the-Loop Isolation:** Autonomous code generation or pull request creation is strictly paused and gated through the web interface ([`http://127.0.0.1:8080/notes`](file:///Users/shyjojose/Hackathon/src/thesisclaw/web/app.py)).
+
+### 🧩 The 5 Specialized Subagents
+
+The worker coordinates 5 distinct subagents defined in [`src/thesisclaw/agent/subagents.py`](file:///Users/shyjojose/Hackathon/src/thesisclaw/agent/subagents.py) and configured via [`runtime/worker/prompts/`](file:///Users/shyjojose/Hackathon/runtime/worker/prompts/):
+
+| # | Subagent | Primary Role | Inputs & Tools | Outputs | Guardrails & Failure Handling |
+|---|---|---|---|---|---|
+| **1** | **`paper-reader`** | Ingests and parses research papers | arXiv URL or ID; `fetch_paper_text` via arXiv API, arXiv HTML, and `pymupdf4llm` PDF fallback | Structured `PaperContent` (title, authors, year, abstract, body sections, extracted claims with quotes) | If scraping fails, logs error and skips to next paper without halting the batch run. |
+| **2** | **`thesis-matcher`** | Evaluates paper relevance against the student thesis | `PaperContent` + Central thesis claim loaded from [`research/agent.md`](file:///Users/shyjojose/Hackathon/research/agent.md); NVIDIA embedding client & cosine similarity | `PaperVerdict`: `SUPPORT`, `EXTEND`, `THREATEN`, or `IRRELEVANT`, plus confidence score and rationale | Filters irrelevant papers if similarity $< 0.35$ and no key hardware keywords appear. |
+| **3** | **`critic`** | Hallucination firewall & claim verification | Extracted claims & quotes vs. full original paper body text | `CriticResult` containing `backed_ratio`, `result` (`pass`/`fail`), and list of unverified quotes | **Hard Quality Gate:** If $< 90\%$ (`backed_ratio < 0.90`) of quotes exist verbatim in the source text, the paper fails and is excluded from briefings. |
+| **4** | **`pathfinder`** | Synthesizes next hardware experiment & academic citation | Verified `PaperContent` + `PaperVerdict` (triggered only for relevant papers passing `critic`) | `PathfinderResult`: concrete RPi5 experiment steps, benchmark criteria, and APA citable paragraph | If proposing code changes (`EXTEND`/`THREATEN`), it queues an item into `pending_approvals` for human sign-off. |
+| **5** | **`publisher`** | Formats and dispatches briefing updates | Aggregated list of `PaperContent` and `PaperVerdict` items from daily scan | `BriefingResult`: structured Telegram Markdown briefing, XiaoZhi voice briefing, and updated `stats.json` | Voice briefing is strictly truncated to $\le 600$ characters to fit ESP32 memory and avoid leaking raw thesis text. |
+
+### ⚡ Key Architectural Separation: Host OpenClaw vs. Worker vs. Voice Bridge
 1. **OpenClaw (System-Level on Laptop):**
    - Installed directly on your host machine without a Python virtual environment.
    - Operates as the Telegram conversational gateway, reading its persona and routing instructions from [`runtime/openclaw/workspace/`](file:///Users/shyjojose/Hackathon/runtime/openclaw/workspace/).

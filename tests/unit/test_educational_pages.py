@@ -121,4 +121,4 @@ async def test_telegram_forwards_educational_link(monkeypatch):
     # Verify that the message sent to Telegram contains the link to the educational page
     matching_messages = [p["text"] for p in sent_payloads if "/papers/2608.22222" in p.get("text", "")]
     assert len(matching_messages) >= 1
-    assert "Interactive 3-Tab Breakdown" in matching_messages[0]
+    assert "Interactive 4-Tab Breakdown" in matching_messages[0]

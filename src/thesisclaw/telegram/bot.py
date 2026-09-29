@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,7 @@ import anyio
 import httpx
 
 from thesisclaw.agent.orchestrator import ThesisOrchestrator
+from thesisclaw.agent.subagents import get_llm_client
 from thesisclaw.config.settings import settings
 from thesisclaw.models.paper import VerdictEnum
 
@@ -22,6 +24,8 @@ class TelegramBotClient:
         self.token = token or settings.telegram_bot_token
         self.base_url = f"https://api.telegram.org/bot{self.token}"
         self.orchestrator = ThesisOrchestrator()
+        self.seen_users: set[int] = set()
+        self.chat_history: dict[int, list[dict[str, str]]] = {}
 
     async def send_message(
         self,
@@ -30,7 +34,7 @@ class TelegramBotClient:
         parse_mode: str = "Markdown",
         reply_markup: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Send message to a telegram chat with optional inline keyboard."""
+        """Send message to a telegram chat with optional inline or reply keyboard."""
         if not self.token:
             logger.warning("TELEGRAM_BOT_TOKEN not configured; message dropped.")
             return {}
@@ -83,6 +87,280 @@ class TelegramBotClient:
             return True
         return user_id in allowed
 
+    def get_base_page_url(self) -> str:
+        """Resolve current reachable URL for paper dashboards."""
+        raw_domain = settings.mcp_tunnel_domain.split("#")[0].strip()
+        if raw_domain:
+            if not raw_domain.startswith(("http://", "https://")):
+                return f"https://{raw_domain}"
+            return raw_domain
+        return f"http://{settings.mcp_host}:{settings.mcp_port}"
+
+    def get_welcome_card(self) -> tuple[str, dict[str, Any]]:
+        """Return the first-message directory with all communication tags and quick reply markup."""
+        msg = (
+            "👋 **Welcome to ThesisClaw!**\n\n"
+            "I am your autonomous research partner monitoring academic literature for your "
+            "Raspberry Pi 5 Edge AI thesis.\n\n"
+            "🏷️ **Communication Tags & Commands:**\n"
+            "• `/links` — View count of processed papers & direct HTML dashboard links\n"
+            "• `/papers` — Open the 4-tab interactive literature dashboard gallery\n"
+            "• `/briefing` — Generate or fetch the latest literature scan briefing\n"
+            "• `/status` — View agent health, active models, and pipeline metrics\n"
+            "• `/thesis` — View active thesis claims, hypotheses & benchmark targets\n"
+            "• `/notes` — Access the human approval gate for code & experiment proposals\n"
+            "• `/help` — Display this communication guide\n\n"
+            "💬 **Ways to Interact:**\n"
+            "• **arXiv Links:** Paste any arXiv link (e.g. `https://arxiv.org/abs/2410.05229`) "
+            "to run an instant deep analysis, generate a 4-tab dashboard, and receive the offline `.html` document.\n"
+            "• **AI Research Chat:** Send any question or thought to chat with your thesis-grounded "
+            "AI advisor (powered by NVIDIA Nemotron).\n"
+            "• **Voice Companion:** Speak with the XiaoZhi ESP32-S3 voice bridge for hands-free queries.\n"
+            "• **Approval Gate:** Review and approve proposed experiments at `/notes`.\n\n"
+            "Tap any quick button below or type a message to start!"
+        )
+        reply_markup = {
+            "keyboard": [
+                [{"text": "🔗 Paper Links"}, {"text": "📰 Briefing"}],
+                [{"text": "⚙️ Agent Status"}, {"text": "🎯 View Thesis"}],
+                [{"text": "📚 Paper Gallery"}, {"text": "🔬 Approval Gate"}],
+            ],
+            "resize_keyboard": True,
+            "is_persistent": True,
+        }
+        return msg, reply_markup
+
+    def get_processed_papers_summary(self, limit: int = 10) -> dict[str, Any]:
+        """Fetch total count, verdict breakdown, and recent papers from SQLite checkpoint DB."""
+        db_file = Path(f"{settings.checkpoints_dir}/thesisclaw.sqlite3")
+        total_papers = 0
+        verdicts: dict[str, int] = {"support": 0, "extend": 0, "threaten": 0, "irrelevant": 0}
+        recent_papers: list[dict[str, Any]] = []
+
+        if db_file.exists():
+            with sqlite3.connect(db_file) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                try:
+                    cur.execute("SELECT COUNT(*) FROM processed_papers")
+                    row = cur.fetchone()
+                    total_papers = row[0] if row else 0
+
+                    cur.execute(
+                        "SELECT verdict, COUNT(*) as cnt FROM processed_papers GROUP BY verdict"
+                    )
+                    for r in cur.fetchall():
+                        v_key = str(r["verdict"]).lower()
+                        verdicts[v_key] = verdicts.get(v_key, 0) + r["cnt"]
+
+                    cur.execute(
+                        "SELECT arxiv_id, title, verdict, reason, processed_at "
+                        "FROM processed_papers ORDER BY processed_at DESC LIMIT ?",
+                        (limit,),
+                    )
+                    for r in cur.fetchall():
+                        recent_papers.append(dict(r))
+                except sqlite3.OperationalError:
+                    pass
+
+        return {
+            "total": total_papers,
+            "verdicts": verdicts,
+            "recent": recent_papers,
+        }
+
+    def format_links_message(self) -> tuple[str, dict[str, Any] | None]:
+        """Format processed papers count, breakdown, and direct HTML links."""
+        summary = self.get_processed_papers_summary()
+        total = summary["total"]
+        verdicts = summary["verdicts"]
+        recent = summary["recent"]
+        base_url = self.get_base_page_url()
+
+        lines = [
+            "📚 **ThesisClaw Processed Research Papers & Links**\n",
+            f"• **Total Evaluated Papers:** `{total}`",
+            f"• 🟢 **Supports Thesis:** `{verdicts.get('support', 0)}`",
+            f"• 🟡 **Extends Thesis:** `{verdicts.get('extend', 0)}`",
+            f"• 🔴 **Threatens Thesis:** `{verdicts.get('threaten', 0)}`",
+            f"• ⚪ **Irrelevant:** `{verdicts.get('irrelevant', 0)}`\n",
+            f"🏛️ **Master Paper Gallery:**\n👉 {base_url}/papers/\n",
+        ]
+
+        inline_buttons: list[list[dict[str, Any]]] = []
+
+        if base_url.startswith("https://"):
+            inline_buttons.append([
+                {
+                    "text": "🏛️ Open Paper Gallery (In-App)",
+                    "web_app": {"url": f"{base_url}/papers/"},
+                },
+                {"text": "🌐 Browser", "url": f"{base_url}/papers/"},
+            ])
+        else:
+            inline_buttons.append(
+                [{"text": "🏛️ Open Master Paper Gallery", "url": f"{base_url}/papers/"}]
+            )
+
+        if recent:
+            lines.append("📄 **Interactive 4-Tab Paper Dashboards:**")
+            for i, p in enumerate(recent[:5], 1):
+                aid = p["arxiv_id"]
+                title = p.get("title", f"Paper {aid}")
+                verdict_badge = {
+                    "support": "🟢",
+                    "extend": "🟡",
+                    "threaten": "🔴",
+                    "irrelevant": "⚪",
+                }.get(str(p.get("verdict", "")).lower(), "📄")
+                p_url = f"{base_url}/papers/{aid}/"
+                lines.append(f"{i}. {verdict_badge} **{title}**\n   🔗 {p_url}")
+
+                if i <= 3:
+                    short_title = title[:24] + "..." if len(title) > 24 else title
+                    btn_text = f"{verdict_badge} {aid}: {short_title}"
+                    if base_url.startswith("https://"):
+                        inline_buttons.append([
+                            {"text": f"📖 {btn_text}", "web_app": {"url": p_url}}
+                        ])
+                    else:
+                        inline_buttons.append([{"text": f"🌐 {btn_text}", "url": p_url}])
+        else:
+            lines.append(
+                "ℹ️ _No papers evaluated yet. Send an arXiv link to evaluate your first paper!_"
+            )
+
+        reply_markup = {"inline_keyboard": inline_buttons} if inline_buttons else None
+        return "\n".join(lines), reply_markup
+
+    def format_thesis_message(self) -> str:
+        """Format active thesis claims, hypotheses, and benchmark targets."""
+        path = settings.resolve_memory_path()
+        return (
+            "🎯 **Active Thesis Profile & Benchmark Targets**\n\n"
+            "**Research Area:** Real-Time, Privacy-Preserving ASR on Raspberry Pi 5 (ARM Cortex-A76).\n"
+            "**Target SLM:** Moonshine Tiny with symmetric INT4/INT8 PTQ & 128-bit ARM NEON SIMD.\n"
+            "**Deployment:** Unprivileged Podman container, GDPR & EU AI Act Art. 50 compliant.\n\n"
+            "**Verification Targets:**\n"
+            "• RTF ≤ 0.20 on 10s audio chunks\n"
+            "• WER degradation ≤ 6% relative to FP16\n"
+            "• RAM working set ≤ 512 MB\n\n"
+            f"📄 Memory stored in `{path.name}`."
+        )
+
+    async def chat_with_agent(self, user_text: str, chat_id: int) -> str:
+        """Provide intelligent academic research responses grounded in thesis memory."""
+        # 1. Check if user is asking for links or paper count
+        lower = user_text.lower()
+        if any(w in lower for w in ["how many papers", "paper links", "show papers", "list papers"]):
+            msg, _ = self.format_links_message()
+            return msg
+
+        if any(w in lower for w in ["what is your thesis", "thesis topic", "thesis claim"]):
+            return self.format_thesis_message()
+
+        # 2. Try ChatNVIDIA
+        llm = get_llm_client()
+        if llm:
+            try:
+                from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+                memory_path = settings.resolve_memory_path()
+                memory_text = ""
+                if memory_path.exists():
+                    memory_text = memory_path.read_text(encoding="utf-8")
+
+                soul_path = Path("runtime/openclaw/workspace/SOUL.md")
+                soul_text = soul_path.read_text(encoding="utf-8") if soul_path.exists() else ""
+
+                system_prompt = (
+                    f"{soul_text}\n\n"
+                    f"## Researcher Memory & Thesis Claims:\n{memory_text}\n\n"
+                    "Instructions: Answer concisely (under 600 chars if practical for edge displays), "
+                    "intellectually honest, grounded strictly in the thesis and ARM Cortex-A76 / RPi5 constraints."
+                )
+
+                history = self.chat_history.get(chat_id, [])
+                messages = [SystemMessage(content=system_prompt)]
+                for msg in history[-6:]:
+                    if msg.get("role") == "user":
+                        messages.append(HumanMessage(content=msg.get("content", "")))
+                    elif msg.get("role") == "assistant":
+                        messages.append(AIMessage(content=msg.get("content", "")))
+                messages.append(HumanMessage(content=user_text))
+
+                resp = await llm.ainvoke(messages)
+                content = str(resp.content) if hasattr(resp, "content") else str(resp)
+
+                if chat_id not in self.chat_history:
+                    self.chat_history[chat_id] = []
+                self.chat_history[chat_id].append({"role": "user", "content": user_text})
+                self.chat_history[chat_id].append({"role": "assistant", "content": content})
+                if len(self.chat_history[chat_id]) > 10:
+                    self.chat_history[chat_id] = self.chat_history[chat_id][-10:]
+
+                return content
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("LLM chat invocation error: %s, falling back to rule-based.", exc)
+
+        # 3. Rule-based / offline intelligent fallback
+        if any(w in lower for w in ["quant", "int4", "int8", "ptq"]):
+            return (
+                "💡 **Quantization Strategy:**\n"
+                "In ThesisClaw, symmetric INT4 Post-Training Quantization (PTQ) compresses Moonshine Tiny's "
+                "weights to saturate the Cortex-A76 LPDDR4X bandwidth (~3.6 GB/s). Our benchmark target is "
+                "RTF ≤ 0.20 with <6% relative WER degradation compared to FP16."
+            )
+        if any(w in lower for w in ["rpi", "pi", "raspberry", "hardware", "cpu", "arm"]):
+            return (
+                "⚙️ **Target Hardware Profile:**\n"
+                "• Platform: Raspberry Pi 5 (Quad-Core ARM Cortex-A76 @ 2.4 GHz, 16GB RAM)\n"
+                "• Acceleration: 128-bit ARM NEON SIMD integer matrix operations\n"
+                "• Container: Unprivileged Podman with CPU affinity pinning."
+            )
+        if any(w in lower for w in ["privacy", "gdpr", "security", "law", "stgb"]):
+            return (
+                "🔒 **Privacy & Compliance:**\n"
+                "All speech transcription executes strictly on-device with zero cloud telemetry, satisfying "
+                "GDPR, StGB § 201, and EU AI Act Article 50. Audio frames are processed in-memory and destroyed."
+            )
+        if any(w in lower for w in ["moonshine", "model", "slm", "asr"]):
+            return (
+                "🎙️ **Moonshine Tiny Architecture:**\n"
+                "Moonshine Tiny is our primary SLM candidate due to its localized sliding-window attention "
+                "O(N × W), requiring substantially less memory footprint than vanilla Whisper on edge CPUs."
+            )
+
+        return (
+            f"🤖 **ThesisClaw Research Partner:**\n"
+            f"I noted: \"{user_text}\".\n\n"
+            "I'm monitoring edge ASR literature for your Raspberry Pi 5 thesis. "
+            "You can ask me about INT4 quantization, ARM NEON SIMD, or paste an arXiv link to evaluate!"
+        )
+
+    async def register_bot_commands(self) -> bool:
+        """Register slash commands with Telegram Bot API."""
+        if not self.token:
+            return False
+        url = f"{self.base_url}/setMyCommands"
+        commands = [
+            {"command": "start", "description": "Welcome guide & all communication tags"},
+            {"command": "links", "description": "Processed research papers count & HTML links"},
+            {"command": "papers", "description": "Interactive 4-tab literature gallery"},
+            {"command": "briefing", "description": "Latest literature scan briefing"},
+            {"command": "status", "description": "Agent status & system health"},
+            {"command": "thesis", "description": "Active thesis claims & benchmark targets"},
+            {"command": "notes", "description": "Human approval gate for experiments"},
+            {"command": "help", "description": "Communication directory and how to interact"},
+        ]
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, json={"commands": commands})
+                return resp.status_code == 200
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed registering bot commands: %s", exc)
+            return False
+
     async def handle_update(self, update: dict[str, Any]) -> str:
         """Process an incoming Telegram update payload."""
         message = update.get("message", {})
@@ -98,25 +376,79 @@ class TelegramBotClient:
             await self.send_message(chat_id, "⛔ Access denied. Your User ID is not allowlisted.")
             return "Access denied."
 
-        # Command /start
-        if text.startswith("/start"):
-            msg = (
-                "👋 **Welcome to ThesisClaw!**\n\n"
-                "I am your autonomous research assistant monitoring academic literature for your "
-                "Raspberry Pi 5 Edge AI thesis.\n\n"
-                "**Commands:**\n"
-                "• Send any arXiv link to evaluate it against your thesis\n"
-                "• `/briefing` — Get the latest literature scan summary\n"
-                "• `/status` — View agent status and processed paper counts"
-            )
-            await self.send_message(chat_id, msg)
-            return "Start handled."
+        # Check if this is the user's first message
+        is_first_interaction = user_id not in self.seen_users
+        if is_first_interaction:
+            self.seen_users.add(user_id)
 
-        # Command /status
-        if text.startswith("/status"):
+        # Handle greetings, /start, and /help
+        if is_first_interaction or text.startswith(("/start", "/help")) or text.lower() in ["hi", "hello", "hey"]:
+            msg, reply_markup = self.get_welcome_card()
+            await self.send_message(chat_id, msg, reply_markup=reply_markup)
+            if text.startswith(("/start", "/help")) or text.lower() in ["hi", "hello", "hey"]:
+                return "Start handled."
+
+        # Command /links or button tap
+        if text.startswith("/links") or text == "🔗 Paper Links":
+            msg, reply_markup = self.format_links_message()
+            await self.send_message(chat_id, msg, reply_markup=reply_markup)
+            return "Links handled."
+
+        # Command /papers or /gallery or button tap
+        if text.startswith(("/papers", "/gallery")) or text == "📚 Paper Gallery":
+            base_url = self.get_base_page_url()
+            gallery_url = f"{base_url}/papers/"
+            reply_markup = None
+            if gallery_url.startswith("https://"):
+                reply_markup = {
+                    "inline_keyboard": [
+                        [
+                            {
+                                "text": "🏛️ Open Paper Gallery (In-App)",
+                                "web_app": {"url": gallery_url},
+                            },
+                            {"text": "🌐 Browser", "url": gallery_url},
+                        ]
+                    ]
+                }
+            else:
+                reply_markup = {
+                    "inline_keyboard": [
+                        [{"text": "🏛️ Open Master Paper Gallery", "url": gallery_url}]
+                    ]
+                }
+            await self.send_message(
+                chat_id,
+                f"📚 **ThesisClaw Literature Gallery:**\n👉 {gallery_url}\n\nExplore interactive 4-tab dashboards for all evaluated papers.",
+                reply_markup=reply_markup,
+            )
+            return "Papers gallery handled."
+
+        # Command /thesis or button tap
+        if text.startswith("/thesis") or text == "🎯 View Thesis":
+            msg = self.format_thesis_message()
+            await self.send_message(chat_id, msg)
+            return "Thesis handled."
+
+        # Command /notes or button tap
+        if text.startswith(("/notes", "/approvals")) or text == "🔬 Approval Gate":
+            base_url = self.get_base_page_url()
+            notes_url = f"{base_url}/notes"
+            reply_markup = {"inline_keyboard": [[{"text": "🔬 Open Approval Gate", "url": notes_url}]]}
+            await self.send_message(
+                chat_id,
+                f"🔬 **Human Approval Gate:**\n👉 {notes_url}\n\nReview, inspect diffs, and approve experiment proposals before execution.",
+                reply_markup=reply_markup,
+            )
+            return "Notes handled."
+
+        # Command /status or button tap
+        if text.startswith("/status") or text == "⚙️ Agent Status":
+            summary = self.get_processed_papers_summary()
             msg = (
                 "⚙️ **ThesisClaw Agent Status**\n\n"
                 f"• **Thesis Area:** {settings.resolve_memory_path().name}\n"
+                f"• **Total Evaluated Papers:** `{summary['total']}`\n"
                 f"• **Checkpoints DB:** `{settings.checkpoints_dir}/thesisclaw.sqlite3`\n"
                 "• **Worker:** Deep Agents subagents active\n"
                 "• **Status:** Running & ready"
@@ -124,15 +456,27 @@ class TelegramBotClient:
             await self.send_message(chat_id, msg)
             return "Status handled."
 
-        # Command /briefing
-        if text.startswith("/briefing"):
+        # Command /briefing or button tap
+        if text.startswith("/briefing") or text in ["📰 Briefing", "📰 Morning Briefing"]:
             briefing = await self.orchestrator.run_batch_evaluation([])
             await self.send_message(chat_id, briefing.telegram_briefing)
             return "Briefing handled."
 
+        # Quick button "💡 Ask Question"
+        if text == "💡 Ask Question":
+            await self.send_message(
+                chat_id,
+                "💡 **Ask Me Anything!**\n\n"
+                "Feel free to ask questions about our thesis claims, INT4 quantization, ARM NEON SIMD, "
+                "or Moonshine Tiny. You can also paste any arXiv URL to evaluate it.",
+            )
+            return "Question prompt handled."
+
         # Check if text contains an arXiv link
         if "arxiv.org" in text or "arxiv:" in text.lower():
-            await self.send_message(chat_id, "🔍 Analyzing paper against your thesis claim... Please wait.")
+            await self.send_message(
+                chat_id, "🔍 Analyzing paper against your thesis claim... Please wait."
+            )
             try:
                 res = await self.orchestrator.evaluate_single_paper(text)
                 v = res["verdict"]
@@ -165,13 +509,9 @@ class TelegramBotClient:
                     from thesisclaw.site_builder.pages import build_paper_page
 
                     gen_file = build_paper_page(paper, v, res.get("pathfinder"))
-                    domain = (
-                        settings.mcp_tunnel_domain.strip()
-                        if settings.mcp_tunnel_domain.strip()
-                        else f"http://{settings.mcp_host}:{settings.mcp_port}"
-                    )
-                    page_url = f"{domain}/papers/{paper.arxiv_id}" if domain.startswith("http") else f"https://{domain}/papers/{paper.arxiv_id}"
-                    reply_parts.append(f"🌐 **Interactive 3-Tab Breakdown:**\n{page_url}")
+                    domain = self.get_base_page_url()
+                    page_url = f"{domain}/papers/{paper.arxiv_id}/"
+                    reply_parts.append(f"🌐 **Interactive 4-Tab Breakdown:**\n{page_url}")
 
                     # Build inline keyboard for Telegram
                     if page_url.startswith("https://"):
@@ -192,7 +532,9 @@ class TelegramBotClient:
                 except Exception as page_exc:  # noqa: BLE001
                     logger.warning("Could not generate paper webpage: %s", page_exc)
 
-                await self.send_message(chat_id, "\n".join(reply_parts), reply_markup=reply_markup)
+                await self.send_message(
+                    chat_id, "\n".join(reply_parts), reply_markup=reply_markup
+                )
 
                 # Send offline document attachment directly to chat
                 if gen_file and Path(gen_file).exists():
@@ -200,7 +542,7 @@ class TelegramBotClient:
                         await self.send_document(
                             chat_id,
                             gen_file,
-                            caption=f"📄 Offline 3-Tab Breakdown (arXiv:{paper.arxiv_id}) with Flowchart & Alpine.js.",
+                            caption=f"📄 Offline 4-Tab Breakdown (arXiv:{paper.arxiv_id}) with Flowchart, Chart.js & Alpine.js.",
                         )
                     except Exception as doc_exc:  # noqa: BLE001
                         logger.debug("Failed sending document attachment: %s", doc_exc)
@@ -210,9 +552,16 @@ class TelegramBotClient:
                 await self.send_message(chat_id, f"❌ Evaluation failed: {exc}")
                 return f"Error: {exc}"
 
-        # Otherwise treated as research note
-        await self.send_message(chat_id, f"📝 Note recorded: \"{text[:50]}...\"")
-        return "Note recorded."
+        # Explicit note recording
+        if text.startswith("/note "):
+            note_content = text[6:].strip()
+            await self.send_message(chat_id, f"📝 Note recorded: \"{note_content[:60]}...\"")
+            return "Note recorded."
+
+        # Conversational AI Research Partner
+        chat_reply = await self.chat_with_agent(text, chat_id)
+        await self.send_message(chat_id, chat_reply)
+        return "Chat handled."
 
 
 async def run_telegram_polling(poll_interval: float = 2.0) -> None:
@@ -223,6 +572,9 @@ async def run_telegram_polling(poll_interval: float = 2.0) -> None:
         print("\n❌ Error: TELEGRAM_BOT_TOKEN is not set in .env.")
         print("Please add your Telegram bot token from @BotFather into .env and try again.\n")
         return
+
+    # Automatically register bot slash commands
+    await bot.register_bot_commands()
 
     logger.info("Starting Telegram long polling for ThesisClaw...")
     print("\n🤖 ThesisClaw Telegram Bot is ACTIVE and listening!")
@@ -248,7 +600,9 @@ async def run_telegram_polling(poll_interval: float = 2.0) -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
     try:
         asyncio.run(run_telegram_polling())
     except KeyboardInterrupt:

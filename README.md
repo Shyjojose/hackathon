@@ -6,7 +6,7 @@
 [![uv](https://img.shields.io/badge/managed_by-uv-purple.svg)](https://github.com/astral-sh/uv)
 [![NVIDIA NIM](https://img.shields.io/badge/NVIDIA-NIM%20%2F%20Build-green.svg)](https://build.nvidia.com)
 [![MCP v2](https://img.shields.io/badge/MCP-SDK%20v2%20Streamable%20HTTP-orange.svg)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/tests-37%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-124%20passed-brightgreen.svg)]()
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 **Hackathon Track:** NVIDIA Claw Agent Challenge: Berlin 🇩🇪  
@@ -150,6 +150,39 @@ The worker coordinates 5 distinct subagents defined in [`src/thesisclaw/agent/su
 | **3** | **`critic`** | Hallucination firewall & claim verification | Extracted claims & quotes vs. full original paper body text | `CriticResult` containing `backed_ratio`, `result` (`pass`/`fail`), and list of unverified quotes | **Hard Quality Gate:** If $< 90\%$ (`backed_ratio < 0.90`) of quotes exist verbatim in the source text, the paper fails and is excluded from briefings. |
 | **4** | **`pathfinder`** | Synthesizes next hardware experiment & academic citation | Verified `PaperContent` + `PaperVerdict` (triggered only for relevant papers passing `critic`) | `PathfinderResult`: concrete RPi5 experiment steps, benchmark criteria, and APA citable paragraph | If proposing code changes (`EXTEND`/`THREATEN`), it queues an item into `pending_approvals` for human sign-off. |
 | **5** | **`publisher`** | Formats and dispatches briefing updates | Aggregated list of `PaperContent` and `PaperVerdict` items from daily scan | `BriefingResult`: structured Telegram Markdown briefing, XiaoZhi voice briefing, and updated `stats.json` | Voice briefing is strictly truncated to $\le 600$ characters to fit ESP32 memory and avoid leaking raw thesis text. |
+
+---
+
+### ⚔️ Paper Arena (AgentWars Mode)
+
+ThesisClaw introduces **Paper Arena** (`src/thesisclaw/arena/`), transforming dry research papers into adversarial debate agents that battle against the student thesis or each other in a structured, moderated LangGraph ring.
+
+```mermaid
+flowchart LR
+    Moderator["Moderator<br>(FightCard & Focal Qs)"] --> FanOut{"Send()<br>Fan-Out"}
+    FanOut --> FighterA["Fighter A (Openings)"]
+    FanOut --> FighterB["Fighter B (Openings)"]
+    FighterA --> CrossExam["Round 2: Cross-Examination"]
+    FighterB --> CrossExam
+    CrossExam --> Followups["Moderator Followups (≤2)"]
+    Followups --> CommonGround["Round 3: Common Ground & Ideas"]
+    CommonGround --> Verifier["Code Quote Verifier<br>(Exact Match & Ligatures)"]
+    Verifier --> Judge["Judge (Nemotron Ultra)<br>Run 1 + Swapped Run 2"]
+    Judge --> Verdict["Merged Verdict & Elo Update<br>Public Fight Page"]
+```
+
+#### Key Components:
+1. **LangGraph Fight Graph (`arena/graph.py`):** Fixed-round state machine with parallel openings (`Send`), cross-examination, moderator followups, common ground, deterministic quote verification, and dual-run judging with sides swapped for symmetry.
+2. **Deterministic Quote Verifier (`arena/verify.py`):** Normalizes unicode ligatures, soft hyphens, and whitespace. Only verbatim verified quotes ($\ge 90\%$ gate) count toward scoring; unverified quotes are struck through on the fight page.
+3. **Resumable Shared Memory (`arena/memory.py`):** Append-only JSONL files indexed by content SHA-256 hash. If interrupted or crashed, restarting a fight resumes from the last SQLite checkpoint without creating duplicate entries.
+4. **Elo Leaderboard (`arena/memory.py`, `site_builder/pages.py`):** Standard chess-style Elo rating ($K=32$) where existing champion papers defend their rankings whenever newcomers enter the ring.
+5. **Fight-Trace Evaluation Harness (`evals/fights/`):** Evaluates recorded fight traces offline across 4 strict gates:
+   - $\ge 90\%$ verified quotes
+   - $\ge 80\%$ swap agreement across dual judge runs
+   - Prompt injection canary pass (adversarial paper instructions cannot trigger tool calls)
+   - Resume without duplicate entries
+6. **New MCP Arena Tools:** `start_fight(a?, b?)`, `fight_status(fight_id?)`, `get_verdict(fight_id?)`, `ask_paper(doc_id, question)`, `similar_papers(doc_id, tau?)`, `leaderboard(limit?)`.
+7. **OpenClaw Telegram Commands:** `/fight`, `/fight <arxiv_id>`, `/fight <a> <b>`, `/ask <arxiv_id> <question>`, `/verdict`, `/leaderboard`.
 
 ### ⚡ Key Architectural Separation: Host OpenClaw vs. Worker vs. Voice Bridge
 1. **OpenClaw (System-Level on Laptop):**

@@ -86,3 +86,38 @@ There is no separate thesis repo. The ESP32-S3 firmware lives at `/Users/shyjojo
 `nvidia/nemotron-3-ultra-550b-a55b`. Budget check with Nano first.
 **Reason:** As documented in `goal.md`. Eval on 30 test papers to pick the right model
 per role before the deadline.
+
+---
+
+## ADR-011 — Paper Arena (AgentWars Integration)
+
+**Decision:** Add `src/thesisclaw/arena/` as an isolated module alongside the existing sequential pipeline.
+No existing module is modified until the arena is fully working.
+**Reason:** Papers-as-agents fight adds a unique, differentiated demo hook for the hackathon.
+The existing pipeline remains untouched. Arena uses LangGraph Send API for parallel fighter openings
+and SqliteSaver for resumable checkpoints. Leaderboard uses **Elo rating**: papers defend rating
+against newcomers.
+
+---
+
+## ADR-012 — Voice Bridge Deferred (Not Dropped)
+
+**Decision:** `voice/` project and `/voice-mcp` endpoint are kept as-is and not modified during
+arena development. Resume after arena is complete and tested.
+**Reason:** Voice has demo value; focus is arena first (user decision 2026-09-30).
+
+---
+
+## ADR-013 — Ground Fighter Document Composition
+
+**Decision:** Ground fighter = `research/agent.md` (primary) + project brief S.M.A.R.T. section
++ any `*.draft.md` files in `research/`. Draft thesis text included; user approved NVIDIA endpoint use.
+**Reason:** Richer Ground document produces stronger, more specific fight arguments.
+
+---
+
+## ADR-014 — Fight-Trace Evaluation Harness
+
+**Decision:** Add `evals/fights/` with `run_fight_eval.py` (live) and `score_fight.py` (offline).
+Pre-recorded JSONL fixtures scored against 4 thresholds offline in `pytest -m "not live"`.
+**Reason:** Judges need verifiable numbers. Harness runs without live API calls in CI.

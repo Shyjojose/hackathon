@@ -673,3 +673,370 @@ def build_paper_page(
         similarity_score=similarity_score if similarity_score is not None else 0.76,
     )
     return build_paper_subfolder_index(breakdown, output_dir=output_dir)
+
+
+def build_fight_page(
+    fight_id: str,
+    output_dir: str | Path = "site/public/fight",
+) -> Path:
+    """
+    Build a rich two-column HTML page for a completed or in-progress Paper Arena fight.
+    Displays side-by-side round exchanges, stance badges, verified quote badges,
+    scorecards, and ranked ideas per agentwars.md specifications.
+    """
+    from thesisclaw.arena.memory import get_fight, read_entries
+    from thesisclaw.arena.models import FightRecord, FightState, MemoryEntry
+
+    record = get_fight(fight_id)
+    if record is None:
+        record = FightRecord(
+            fight_id=fight_id,
+            fighter_a={"kind": "ground", "doc_id": "ground"},
+            fighter_b={"kind": "paper", "doc_id": "unknown"},
+            state=FightState.QUEUED,
+        )
+
+    entries = read_entries(fight_id)
+    out_dir = Path(output_dir) / fight_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / "index.html"
+
+    doc_a = html.escape(record.fighter_a.doc_id)
+    doc_b = html.escape(record.fighter_b.doc_id)
+    status_label = html.escape(record.state.value.upper())
+
+    mv = record.merged_verdict
+    winner_text = html.escape(mv.winner.upper()) if mv and mv.winner else "IN PROGRESS"
+    swap_agree = f"{mv.swap_agreement * 100:.1f}%" if mv else "Pending"
+    verified_ratio = f"{mv.all_entries_verified_ratio * 100:.1f}%" if mv else "Pending"
+    score_a = f"{mv.final_scores.get('fighter_a', 0.0):.1f}" if mv else "-"
+    score_b = f"{mv.final_scores.get('fighter_b', 0.0):.1f}" if mv else "-"
+
+    # Group entries by round
+    rounds_map: dict[int, list[MemoryEntry]] = {}
+    for e in entries:
+        rounds_map.setdefault(e.round, []).append(e)
+
+    def render_entry_card(e: MemoryEntry) -> str:
+        quote_html = ""
+        if e.quote:
+            badge_class = "quote-verified" if e.verified else ("quote-near" if e.near_exact else "quote-unverified")
+            badge_text = "✓ Verified Quote" if e.verified else ("~ Near Match" if e.near_exact else "⚬ Unverified Quote")
+            quote_html = (
+                f'<div class="quote-box {badge_class}">'
+                f'<span class="badge {badge_class}">{badge_text}</span>'
+                f'<blockquote>&ldquo;{html.escape(e.quote)}&rdquo;</blockquote>'
+                f'</div>'
+            )
+
+        strike_style = 'style="text-decoration: line-through; opacity: 0.7;"' if e.quote and not e.verified and not e.near_exact else ""
+        stance_class = f"stance-{e.stance.value.lower()}"
+        return (
+            f'<div class="entry-card {stance_class}">'
+            f'<div class="entry-header">'
+            f'<span class="entry-author">{html.escape(e.author.upper())}</span>'
+            f'<span class="badge badge-stance">{html.escape(e.stance.value)}</span>'
+            f'</div>'
+            f'<p class="entry-text" {strike_style}>{html.escape(e.text)}</p>'
+            f'{quote_html}'
+            f'</div>'
+        )
+
+    rounds_html = []
+    round_titles = {
+        0: "Setup & Framing (Moderator)",
+        1: "Round 1 — Independent Openings",
+        2: "Round 2 — Cross-Examination & Direct Clashes",
+        3: "Round 3 — Common Ground & Novel Ideas",
+    }
+
+    for r_num in sorted(rounds_map.keys()):
+        r_entries = rounds_map[r_num]
+        title = round_titles.get(r_num, f"Round {r_num}")
+
+        col_a_entries = [e for e in r_entries if e.author == "fighter_a"]
+        col_b_entries = [e for e in r_entries if e.author == "fighter_b"]
+        other_entries = [e for e in r_entries if e.author not in ("fighter_a", "fighter_b")]
+
+        moderator_section = ""
+        if other_entries:
+            cards = "".join(render_entry_card(e) for e in other_entries)
+            moderator_section = f'<div class="moderator-block"><h4>Moderator</h4>{cards}</div>'
+
+        cols_section = ""
+        if col_a_entries or col_b_entries:
+            cards_a = "".join(render_entry_card(e) for e in col_a_entries) or '<p class="text-muted">No statements</p>'
+            cards_b = "".join(render_entry_card(e) for e in col_b_entries) or '<p class="text-muted">No statements</p>'
+            cols_section = (
+                f'<div class="fight-columns">'
+                f'<div class="fight-col fight-col-a"><h5>{doc_a}</h5>{cards_a}</div>'
+                f'<div class="fight-col fight-col-b"><h5>{doc_b}</h5>{cards_b}</div>'
+                f'</div>'
+            )
+
+        rounds_html.append(
+            f'<section class="round-section">'
+            f'<h3>{title}</h3>'
+            f'{moderator_section}'
+            f'{cols_section}'
+            f'</section>'
+        )
+
+    all_rounds_content = "\n".join(rounds_html) if rounds_html else '<p class="text-muted">Fight in progress or queued.</p>'
+
+    ideas_html = ""
+    if mv and mv.ranked_ideas:
+        idea_items = "".join(f"<li><code>{html.escape(iid)}</code></li>" for iid in mv.ranked_ideas)
+        ideas_html = f'<div class="card"><h4>💡 Ranked Novel Ideas</h4><ul>{idea_items}</ul></div>'
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arena Fight: {doc_a} vs {doc_b} — ThesisClaw</title>
+    <style>
+        :root {{
+            --bg: #090d16;
+            --card-bg: #111827;
+            --border: #1f2937;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #3b82f6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+            background: var(--bg);
+            color: var(--text-main);
+            margin: 0;
+            padding: 24px 16px;
+            line-height: 1.5;
+        }}
+        .container {{ max-width: 1040px; margin: 0 auto; }}
+        header {{ margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }}
+        .nav-back {{ color: var(--primary); text-decoration: none; font-size: 0.9rem; }}
+        .title {{ font-size: 1.8rem; font-weight: 800; margin: 8px 0; color: #fff; }}
+        .header-meta {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }}
+        .badge {{ display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }}
+        .badge-status {{ background: #1e3a8a; color: #93c5fd; }}
+        .badge-winner {{ background: #064e3b; color: #6ee7b7; }}
+        .badge-stance {{ background: #374151; color: #d1d5db; }}
+        .quote-verified {{ background: rgba(16, 185, 129, 0.1); border-left: 3px solid var(--success); color: #a7f3d0; }}
+        .quote-near {{ background: rgba(245, 158, 11, 0.1); border-left: 3px solid var(--warning); color: #fde68a; }}
+        .quote-unverified {{ background: rgba(239, 68, 68, 0.1); border-left: 3px solid var(--danger); color: #fca5a5; }}
+        .scoreboard {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }}
+        .score-box {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }}
+        .score-val {{ font-size: 1.6rem; font-weight: 800; color: var(--primary); }}
+        .score-lbl {{ font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; }}
+        .round-section {{ margin-bottom: 32px; }}
+        .round-section h3 {{ border-bottom: 1px solid var(--border); padding-bottom: 8px; color: #e5e7eb; }}
+        .fight-columns {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }}
+        @media (max-width: 768px) {{ .fight-columns {{ grid-template-columns: 1fr; }} }}
+        .fight-col {{ background: rgba(17, 24, 39, 0.6); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }}
+        .fight-col h5 {{ margin: 0 0 12px 0; color: var(--primary); font-size: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 6px; }}
+        .entry-card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 12px; }}
+        .entry-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }}
+        .entry-author {{ font-size: 0.8rem; font-weight: 700; color: var(--text-muted); }}
+        .entry-text {{ margin: 0 0 8px 0; font-size: 0.9rem; }}
+        .quote-box {{ padding: 8px; border-radius: 4px; font-size: 0.85rem; margin-top: 6px; }}
+        .quote-box blockquote {{ margin: 4px 0 0 0; font-style: italic; }}
+        .card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }}
+        .text-muted {{ color: var(--text-muted); }}
+        footer {{ text-align: center; font-size: 0.8rem; color: var(--text-muted); margin-top: 48px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <a href="/leaderboard" class="nav-back">&larr; Back to Leaderboard</a>
+            <h1 class="title">⚔️ {doc_a} <span style="color:var(--text-muted)">vs</span> {doc_b}</h1>
+            <div class="header-meta">
+                <span class="badge badge-status">Fight: {html.escape(fight_id)}</span>
+                <span class="badge badge-status">State: {status_label}</span>
+                <span class="badge badge-winner">Winner: {winner_text}</span>
+            </div>
+        </header>
+
+        <div class="scoreboard">
+            <div class="score-box">
+                <div class="score-lbl">{doc_a} Score</div>
+                <div class="score-val">{score_a}/5</div>
+            </div>
+            <div class="score-box">
+                <div class="score-lbl">{doc_b} Score</div>
+                <div class="score-val">{score_b}/5</div>
+            </div>
+            <div class="score-box">
+                <div class="score-lbl">Swap Agreement</div>
+                <div class="score-val" style="color:var(--success);">{swap_agree}</div>
+            </div>
+            <div class="score-box">
+                <div class="score-lbl">Verified Quotes</div>
+                <div class="score-val" style="color:var(--success);">{verified_ratio}</div>
+            </div>
+        </div>
+
+        {ideas_html}
+
+        <div class="card">
+            <h4 style="margin-top:0;">🛡️ Fight Rules & Verifier Legend</h4>
+            <p style="margin:0; font-size:0.85rem; color:var(--text-muted);">
+                Each fighter may only cite verbatim quotes from its source document. 
+                <span style="color:#a7f3d0">✓ Verified quotes</span> count towards scoring.
+                <span style="color:#fca5a5; text-decoration:line-through">Strikethrough claims</span> contain unverified quotes and were excluded from judging.
+            </p>
+        </div>
+
+        {all_rounds_content}
+
+        <footer>
+            <p>ThesisClaw Paper Arena • Powered by LangGraph & Nemotron • Berlin Hackathon</p>
+        </footer>
+    </div>
+</body>
+</html>
+"""
+    out_file.write_text(html_content, encoding="utf-8")
+    return out_file
+
+
+def build_leaderboard_page(
+    output_path: str | Path = "site/public/leaderboard/index.html",
+) -> Path:
+    """Build the Elo leaderboard page ranking all papers and Ground."""
+    from thesisclaw.arena.memory import get_leaderboard, list_fights
+
+    out_file = Path(output_path)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    entries = get_leaderboard(limit=50)
+    recent_fights = list_fights(limit=10)
+
+    rows_html = []
+    for i, e in enumerate(entries):
+        badge = '<span class="badge badge-ground">Ground Thesis</span>' if e.doc_id == "ground" else ""
+        link = f'<a href="https://arxiv.org/abs/{html.escape(e.doc_id)}" target="_blank">{html.escape(e.doc_id)}</a>' if e.doc_id != "ground" else "Ground (Thesis Anchor)"
+        rows_html.append(
+            f"<tr>"
+            f"<td>#{i+1}</td>"
+            f"<td><strong>{link}</strong> {badge}</td>"
+            f"<td><span class='elo-val'>{e.rating:.0f}</span></td>"
+            f"<td>{e.wins}</td>"
+            f"<td>{e.losses}</td>"
+            f"<td>{e.draws}</td>"
+            f"<td>{e.fights}</td>"
+            f"</tr>"
+        )
+    table_body = "\n".join(rows_html) if rows_html else "<tr><td colspan='7' class='text-muted'>No fights recorded yet.</td></tr>"
+
+    fights_html = []
+    for f in recent_fights:
+        mv = f.merged_verdict
+        winner = mv.winner.upper() if mv and mv.winner else f.state.value.upper()
+        fights_html.append(
+            f"<tr>"
+            f"<td><a href='/fight/{html.escape(f.fight_id)}'><code>{html.escape(f.fight_id)}</code></a></td>"
+            f"<td>{html.escape(f.fighter_a.doc_id)} vs {html.escape(f.fighter_b.doc_id)}</td>"
+            f"<td><span class='badge'>{winner}</span></td>"
+            f"<td>{f.started_at[:19].replace('T', ' ') if f.started_at else '-'}</td>"
+            f"</tr>"
+        )
+    fights_body = "\n".join(fights_html) if fights_html else "<tr><td colspan='4' class='text-muted'>No recent fights.</td></tr>"
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paper Arena Leaderboard — ThesisClaw</title>
+    <style>
+        :root {{
+            --bg: #090d16;
+            --card-bg: #111827;
+            --border: #1f2937;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #3b82f6;
+            --success: #10b981;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+            background: var(--bg);
+            color: var(--text-main);
+            margin: 0;
+            padding: 24px 16px;
+            line-height: 1.5;
+        }}
+        .container {{ max-width: 960px; margin: 0 auto; }}
+        header {{ margin-bottom: 32px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }}
+        .title {{ font-size: 2rem; font-weight: 800; margin: 0 0 8px 0; color: #fff; }}
+        .subtitle {{ color: var(--text-muted); font-size: 1.05rem; margin: 0; }}
+        .card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 24px; }}
+        table {{ width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }}
+        th, td {{ padding: 12px 14px; border-bottom: 1px solid var(--border); }}
+        th {{ background: #1f2937; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }}
+        .elo-val {{ font-weight: 800; color: var(--primary); font-size: 1.05rem; }}
+        .badge {{ display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }}
+        .badge-ground {{ background: #065f46; color: #6ee7b7; }}
+        a {{ color: var(--primary); text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        .text-muted {{ color: var(--text-muted); }}
+        footer {{ text-align: center; font-size: 0.8rem; color: var(--text-muted); margin-top: 48px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 class="title">🏆 Paper Arena Leaderboard</h1>
+            <p class="subtitle">Adversarial Research Debates &bull; Elo Ratings Defended Against Newcomers</p>
+        </header>
+
+        <div class="card">
+            <h3 style="margin-top:0;">⚡ Current Standings</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Fighter / Paper</th>
+                        <th>Elo Rating</th>
+                        <th>Wins</th>
+                        <th>Losses</th>
+                        <th>Draws</th>
+                        <th>Fights</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {table_body}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top:0;">⚔️ Recent Fights</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fight ID</th>
+                        <th>Matchup</th>
+                        <th>Outcome</th>
+                        <th>Started</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {fights_body}
+                </tbody>
+            </table>
+        </div>
+
+        <footer>
+            <p>ThesisClaw • NVIDIA Claw Agent Challenge: Berlin • LangGraph Arena</p>
+        </footer>
+    </div>
+</body>
+</html>
+"""
+    out_file.write_text(html_content, encoding="utf-8")
+    return out_file

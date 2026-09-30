@@ -13,16 +13,17 @@ a concrete next experiment and a citable paragraph.
 | Folder | Purpose |
 |---|---|
 | `src/thesisclaw/` | All Python source (worker, MCP servers, web, jobs) |
+| `src/thesisclaw/arena/` | Paper Arena: LangGraph fight graph, quote verifier, shared memory, Elo leaderboard |
 | `runtime/openclaw/workspace/` | OpenClaw Telegram agent's instructions (not for you) |
 | `runtime/openclaw/skills/` | OpenClaw-only skills (not for you) |
 | `runtime/worker/` | Deep Agents worker prompts and skills (not for you) |
 | `templates/research/` | Templates for the live memory files (tracked in git) |
 | `research/` | Live agent memory — gitignored, lives on Lambda filesystem |
 | `voice/` | Standalone uv project for the XiaoZhi ESP32-S3 voice bridge |
-| `evals/` | Evaluation harness and golden test set (30 labeled papers) |
-| `tests/` | Automated tests (unit, contract, agent, e2e) |
+| `evals/` | Evaluation harness (30 golden papers + arena fight-trace evaluator) |
+| `tests/` | Automated tests (unit, contract, arena, agent, e2e) |
 | `docs/` | Architecture decisions (ADRs) and MCP tool contract |
-| `site/` | Public judge page + private playbook (static, no external JS) |
+| `site/` | Public judge page + private playbook + arena fight & leaderboard pages |
 | `infra/` | Lambda control script, cloud-init, cloudflared config (added later) |
 | `scripts/hooks/` | Guardrail hook (guard.py) |
 | `.github/skills/` | Coding skills (docs-first, agent-worker, deploy-ops, voice-bridge) |

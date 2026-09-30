@@ -1,0 +1,28 @@
+{
+  "line_type": "entry",
+  "entry_id": "aaa00000001",
+  "fight_id": "fixture_001",
+  "round": 1,
+  "author": "fighter_a",
+  "entry_type": "claim",
+  "text": "INT4 quantization reduces peak RAM by over 50% compared to FP16 on ARM Cortex-A76.",
+  "quote": "symmetric integer quantization compresses ASR models below INT8 precision",
+  "doc_id": "ground",
+  "section": "thesis",
+  "char_position": 42,
+  "conditions": "",
+  "stance": "SUPPORTS",
+  "refs": [],
+  "verified": true,
+  "near_exact": false,
+  "verification_note": ""
+}
+{"line_type": "entry", "entry_id": "aaa00000002", "fight_id": "fixture_001", "round": 1, "author": "fighter_a", "entry_type": "claim", "text": "RTF remains below 0.5 at INT4 precision on Raspberry Pi 5.", "quote": "real-time factor (RTF) and memory consumption decrease on ARM Cortex-A76 processors without exceeding 6% WER degradation", "doc_id": "ground", "section": "thesis", "char_position": 98, "conditions": "", "stance": "SUPPORTS", "refs": [], "verified": true, "near_exact": false, "verification_note": ""}
+{"line_type": "entry", "entry_id": "bbb00000001", "fight_id": "fixture_001", "round": 1, "author": "fighter_b", "entry_type": "claim", "text": "Speculative decoding achieves 2.5x throughput on edge CPUs.", "quote": "We demonstrate speculative decoding on ARM Cortex devices achieving 2.5x throughput", "doc_id": "2301.99999", "section": "results", "char_position": 201, "conditions": "batch_size=1", "stance": "CONTRADICTS", "refs": [], "verified": true, "near_exact": false, "verification_note": ""}
+{"line_type": "entry", "entry_id": "bbb00000002", "fight_id": "fixture_001", "round": 1, "author": "fighter_b", "entry_type": "claim", "text": "INT4 quantization degrades WER by more than 6% for models under 100M parameters.", "quote": "For models with fewer than 100M parameters, INT4 precision leads to WER degradation exceeding 6%", "doc_id": "2301.99999", "section": "experiments", "char_position": 312, "conditions": "model_size<100M", "stance": "CONTRADICTS", "refs": [], "verified": true, "near_exact": false, "verification_note": ""}
+{"line_type": "entry", "entry_id": "aaa00000003", "fight_id": "fixture_001", "round": 2, "author": "fighter_a", "entry_type": "concession", "text": "Speculative decoding results may not directly compare — our setup uses Moonshine Tiny.", "quote": "real-time factor (RTF) and memory consumption decrease on ARM Cortex-A76 processors", "doc_id": "ground", "section": "thesis", "char_position": 88, "conditions": "Moonshine Tiny only", "stance": "DIFFERENT_CONDITIONS", "refs": ["bbb00000001"], "verified": true, "near_exact": false, "verification_note": ""}
+{"line_type": "entry", "entry_id": "bbb00000003", "fight_id": "fixture_001", "round": 2, "author": "fighter_b", "entry_type": "claim", "text": "The 6% WER limit holds only for larger models, not Moonshine Tiny class.", "quote": "For models with fewer than 100M parameters, INT4 precision leads to WER degradation exceeding 6%", "doc_id": "2301.99999", "section": "experiments", "char_position": 312, "conditions": "model_size<100M", "stance": "DIFFERENT_CONDITIONS", "refs": [], "verified": true, "near_exact": false, "verification_note": ""}
+{"line_type": "entry", "entry_id": "aaa00000004", "fight_id": "fixture_001", "round": 3, "author": "fighter_a", "entry_type": "idea", "text": "Both sides agree that model size is the key variable — future work should test Moonshine Tiny specifically at INT4.", "quote": "real-time factor (RTF) and memory consumption decrease on ARM Cortex-A76 processors", "doc_id": "ground", "section": "thesis", "char_position": 88, "conditions": "", "stance": "SUPPORTS", "refs": ["aaa00000002", "bbb00000004"], "verified": true, "near_exact": false, "verification_note": ""}
+{"line_type": "entry", "entry_id": "bbb00000004", "fight_id": "fixture_001", "round": 3, "author": "fighter_b", "entry_type": "idea", "text": "Mixed precision (INT8 activations, INT4 weights) may resolve the accuracy gap for small models.", "quote": "mixed precision strategies combining INT4 weights with INT8 activations show promise", "doc_id": "2301.99999", "section": "discussion", "char_position": 489, "conditions": "", "stance": "SUPPORTS", "refs": ["bbb00000002"], "verified": true, "near_exact": false, "verification_note": ""}
+{"line_type": "verdict", "fight_id": "fixture_001", "winner": "draw", "claim_verdicts": {"aaa00000001": "upheld", "aaa00000002": "upheld", "bbb00000001": "incomparable", "bbb00000002": "upheld", "aaa00000003": "upheld", "bbb00000003": "upheld"}, "scores": {"fighter_a": 4.1, "fighter_b": 3.9}, "ranked_ideas": ["bbb00000004", "aaa00000004"], "swap_run": 1, "judge_citations": ["aaa00000001", "bbb00000002", "bbb00000004"], "dimension_scores": {}}
+{"line_type": "verdict", "fight_id": "fixture_001", "winner": "draw", "claim_verdicts": {"aaa00000001": "upheld", "aaa00000002": "upheld", "bbb00000001": "incomparable", "bbb00000002": "upheld", "aaa00000003": "upheld", "bbb00000003": "upheld"}, "scores": {"fighter_a": 3.9, "fighter_b": 4.0}, "ranked_ideas": ["bbb00000004", "aaa00000004"], "swap_run": 2, "judge_citations": ["aaa00000001", "bbb00000002", "bbb00000004"], "dimension_scores": {}}

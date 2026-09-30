@@ -71,3 +71,36 @@ def test_web_papers_gallery():
     resp_slash = client.get("/papers/")
     assert resp_slash.status_code == 200
     assert "Evaluated Literature Gallery" in resp_slash.text
+
+
+def test_web_fight_page(monkeypatch):
+    client = TestClient(app)
+    from thesisclaw.arena.models import Fighter, FighterKind, FightRecord, FightState
+    record = FightRecord(
+        fight_id="fight-web-01",
+        fighter_a=Fighter(kind=FighterKind.GROUND, doc_id="ground"),
+        fighter_b=Fighter(kind=FighterKind.PAPER, doc_id="2608.99999"),
+        state=FightState.DONE,
+    )
+    monkeypatch.setattr("thesisclaw.arena.memory.get_fight", lambda fid: record if fid == "fight-web-01" else None)
+    monkeypatch.setattr("thesisclaw.arena.memory.read_entries", lambda fid: [])
+
+    resp = client.get("/fight/fight-web-01")
+    assert resp.status_code == 200
+    assert "fight-web-01" in resp.text
+    assert "ground" in resp.text
+
+
+def test_web_leaderboard(monkeypatch):
+    client = TestClient(app)
+    from thesisclaw.arena.models import EloEntry
+    monkeypatch.setattr(
+        "thesisclaw.arena.memory.get_leaderboard",
+        lambda limit=50: [EloEntry(doc_id="ground", rating=1250.0, wins=2, fights=2)],
+    )
+    monkeypatch.setattr("thesisclaw.arena.memory.list_fights", lambda limit=10: [])
+
+    resp = client.get("/leaderboard")
+    assert resp.status_code == 200
+    assert "Paper Arena Leaderboard" in resp.text
+    assert "ground" in resp.text

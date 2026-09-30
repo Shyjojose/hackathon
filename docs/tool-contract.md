@@ -40,6 +40,42 @@
 - **Output:** `{ "note_id": "string" }`
 - **Side effects:** Writes to `research/notes/<timestamp>.md` on Lambda filesystem.
 
+### `start_fight`
+- **Surface:** `/mcp` only
+- **Input:** `{ "a": "string | null", "b": "string | null" }` (null a & b: Ground vs auto-selected paper; null b: Ground vs a)
+- **Output:** `{ "fight_id": "string", "fighter_a": "string", "fighter_b": "string", "status": "queued", "message": "string" }`
+- **Side effects:** Queues a LangGraph fight graph in the background.
+
+### `fight_status`
+- **Surface:** `/mcp` only
+- **Input:** `{ "fight_id": "string | null" }` (null = latest fight)
+- **Output:** `{ "fight_id": "string", "state": "queued | setup | openings | cross_exam | followups | common_ground | verifying | judging | done | failed", "fighter_a": "string", "fighter_b": "string", "finished_at": "string | null", "error": "string | null" }`
+- **Side effects:** None.
+
+### `get_verdict`
+- **Surface:** `/mcp` only
+- **Input:** `{ "fight_id": "string | null" }` (null = latest completed fight)
+- **Output:** `{ "fight_id": "string", "winner": "fighter_a | fighter_b | draw", "swap_agreement": "float", "final_scores": "dict", "verified_ratio": "float", "ranked_ideas_count": "int", "struck_count": "int", "upheld_count": "int" }`
+- **Side effects:** None.
+
+### `ask_paper`
+- **Surface:** `/mcp` only
+- **Input:** `{ "doc_id": "string", "question": "string" }`
+- **Output:** `{ "answer": "string", "doc_id": "string", "verified": "bool", "near_exact": "bool", "section": "string", "question": "string" }`
+- **Side effects:** None.
+
+### `similar_papers`
+- **Surface:** `/mcp` only
+- **Input:** `{ "doc_id": "string", "tau": "float (default 0.65)", "limit": "int (default 5)" }`
+- **Output:** `{ "doc_id": "string", "tau": "float", "similar_papers": "[{doc_id, score, above_tau}]" }`
+- **Side effects:** None.
+
+### `leaderboard`
+- **Surface:** `/mcp` only
+- **Input:** `{ "limit": "int (default 10)" }`
+- **Output:** `{ "leaderboard": "[{rank, doc_id, rating, wins, losses, draws, fights}]" }`
+- **Side effects:** None.
+
 ## Approval Flow
 
 All approvals happen through the logged-in notes web page only.

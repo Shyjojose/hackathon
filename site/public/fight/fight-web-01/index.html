@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arena Fight: ground vs 2608.99999 — ThesisClaw</title>
+    <style>
+        :root {
+            --bg: #090d16;
+            --card-bg: #111827;
+            --border: #1f2937;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #3b82f6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+            background: var(--bg);
+            color: var(--text-main);
+            margin: 0;
+            padding: 24px 16px;
+            line-height: 1.5;
+        }
+        .container { max-width: 1040px; margin: 0 auto; }
+        header { margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+        .nav-back { color: var(--primary); text-decoration: none; font-size: 0.9rem; }
+        .title { font-size: 1.8rem; font-weight: 800; margin: 8px 0; color: #fff; }
+        .header-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+        .badge-status { background: #1e3a8a; color: #93c5fd; }
+        .badge-winner { background: #064e3b; color: #6ee7b7; }
+        .badge-stance { background: #374151; color: #d1d5db; }
+        .quote-verified { background: rgba(16, 185, 129, 0.1); border-left: 3px solid var(--success); color: #a7f3d0; }
+        .quote-near { background: rgba(245, 158, 11, 0.1); border-left: 3px solid var(--warning); color: #fde68a; }
+        .quote-unverified { background: rgba(239, 68, 68, 0.1); border-left: 3px solid var(--danger); color: #fca5a5; }
+        .scoreboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+        .score-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+        .score-val { font-size: 1.6rem; font-weight: 800; color: var(--primary); }
+        .score-lbl { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; }
+        .round-section { margin-bottom: 32px; }
+        .round-section h3 { border-bottom: 1px solid var(--border); padding-bottom: 8px; color: #e5e7eb; }
+        .fight-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+        @media (max-width: 768px) { .fight-columns { grid-template-columns: 1fr; } }
+        .fight-col { background: rgba(17, 24, 39, 0.6); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+        .fight-col h5 { margin: 0 0 12px 0; color: var(--primary); font-size: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+        .entry-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+        .entry-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .entry-author { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); }
+        .entry-text { margin: 0 0 8px 0; font-size: 0.9rem; }
+        .quote-box { padding: 8px; border-radius: 4px; font-size: 0.85rem; margin-top: 6px; }
+        .quote-box blockquote { margin: 4px 0 0 0; font-style: italic; }
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .text-muted { color: var(--text-muted); }
+        footer { text-align: center; font-size: 0.8rem; color: var(--text-muted); margin-top: 48px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <a href="/leaderboard" class="nav-back">&larr; Back to Leaderboard</a>
+            <h1 class="title">⚔️ ground <span style="color:var(--text-muted)">vs</span> 2608.99999</h1>
+            <div class="header-meta">
+                <span class="badge badge-status">Fight: fight-web-01</span>
+                <span class="badge badge-status">State: DONE</span>
+                <span class="badge badge-winner">Winner: IN PROGRESS</span>
+            </div>
+        </header>
+
+        <div class="scoreboard">
+            <div class="score-box">
+                <div class="score-lbl">ground Score</div>
+                <div class="score-val">-/5</div>
+            </div>
+            <div class="score-box">
+                <div class="score-lbl">2608.99999 Score</div>
+                <div class="score-val">-/5</div>
+            </div>
+            <div class="score-box">
+                <div class="score-lbl">Swap Agreement</div>
+                <div class="score-val" style="color:var(--success);">Pending</div>
+            </div>
+            <div class="score-box">
+                <div class="score-lbl">Verified Quotes</div>
+                <div class="score-val" style="color:var(--success);">Pending</div>
+            </div>
+        </div>
+
+        
+
+        <div class="card">
+            <h4 style="margin-top:0;">🛡️ Fight Rules & Verifier Legend</h4>
+            <p style="margin:0; font-size:0.85rem; color:var(--text-muted);">
+                Each fighter may only cite verbatim quotes from its source document. 
+                <span style="color:#a7f3d0">✓ Verified quotes</span> count towards scoring.
+                <span style="color:#fca5a5; text-decoration:line-through">Strikethrough claims</span> contain unverified quotes and were excluded from judging.
+            </p>
+        </div>
+
+        <p class="text-muted">Fight in progress or queued.</p>
+
+        <footer>
+            <p>ThesisClaw Paper Arena • Powered by LangGraph & Nemotron • Berlin Hackathon</p>
+        </footer>
+    </div>
+</body>
+</html>

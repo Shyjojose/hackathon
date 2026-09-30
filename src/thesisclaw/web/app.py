@@ -223,3 +223,29 @@ def approve_proposal(job_id: str) -> dict[str, str]:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/fight/{fight_id}", response_class=HTMLResponse)
+@app.get("/fight/{fight_id}/", response_class=HTMLResponse)
+def view_fight_page(fight_id: str) -> str:
+    """Serve the two-column interactive Paper Arena fight page."""
+    try:
+        from thesisclaw.site_builder.pages import build_fight_page
+        fight_file = build_fight_page(fight_id)
+        return fight_file.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Fight {fight_id} not found: {exc}") from exc
+
+
+@app.get("/leaderboard", response_class=HTMLResponse)
+@app.get("/leaderboard/", response_class=HTMLResponse)
+def view_leaderboard() -> str:
+    """Serve the Paper Arena Elo leaderboard page."""
+    lb_file = Path("site/public/leaderboard/index.html")
+    try:
+        from thesisclaw.site_builder.pages import build_leaderboard_page
+        lb_file = build_leaderboard_page(output_path=lb_file)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate leaderboard: {exc}") from exc
+
+    return lb_file.read_text(encoding="utf-8")

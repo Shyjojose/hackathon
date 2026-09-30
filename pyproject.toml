@@ -39,7 +39,7 @@ markers = [
     "slow: takes more than 5 s",
 ]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "evals"]
 
 [tool.ruff]
 line-length = 100

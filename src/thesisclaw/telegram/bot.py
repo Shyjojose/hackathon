@@ -142,6 +142,32 @@ class TelegramBotClient:
             return f"http://{lan_ip}:{settings.mcp_port}"
         return f"http://{host}:{settings.mcp_port}"
 
+    async def notify_tunnel_url(self, chat_id: int | str, tunnel_url: str) -> None:
+        """
+        Send a boot notification card with the live Cloudflare Tunnel URL.
+        Called once by the server startup hook so the admin immediately knows
+        the new public HTTPS URL for this session.
+        """
+        base_url = tunnel_url.rstrip("/")
+        msg = (
+            f"🌐 **ThesisClaw is Online!**\n\n"
+            f"• **Public URL:** `{base_url}`\n"
+            f"• **Fight Dashboards:** `{base_url}/fight/<fight_id>`\n"
+            f"• **Leaderboard:** `{base_url}/leaderboard`\n"
+            f"• **Paper Gallery:** `{base_url}/papers/`\n"
+            f"• **Approval Gate:** `{base_url}/notes`\n\n"
+            f"_All Telegram links now use this HTTPS URL — WebApp inline buttons are enabled on mobile! 📱_"
+        )
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "📚 Paper Gallery", "web_app": {"url": f"{base_url}/papers/"}},
+                    {"text": "🏆 Leaderboard", "web_app": {"url": f"{base_url}/leaderboard"}},
+                ]
+            ]
+        }
+        await self.send_message(chat_id, msg, reply_markup=reply_markup)
+
     def get_welcome_card(self) -> tuple[str, dict[str, Any]]:
         """Return the first-message directory with all communication tags and quick reply markup."""
         lan_ip = get_lan_ip()
@@ -1212,6 +1238,16 @@ async def run_telegram_polling(poll_interval: float = 2.0) -> None:
 
     # Automatically register bot slash commands
     await bot.register_bot_commands()
+
+    # Send tunnel boot notification to all allowed users once tunnel URL is known
+    tunnel_url = settings.mcp_tunnel_domain.split("#")[0].strip()
+    if tunnel_url:
+        allowed_ids = settings.get_allowed_telegram_ids()
+        for uid in allowed_ids:
+            try:
+                await bot.notify_tunnel_url(uid, tunnel_url)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not send tunnel boot notification to %s: %s", uid, exc)
 
     logger.info("Starting Telegram long polling for ThesisClaw...")
     print("\n🤖 ThesisClaw Telegram Bot is ACTIVE and listening!")

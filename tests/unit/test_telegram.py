@@ -676,3 +676,153 @@ async def test_telegram_registered_bot_commands() -> None:
     assert "leaderboard" in cmd_names
 
 
+@pytest.mark.asyncio
+@respx.mock
+async def test_telegram_edit_message_text() -> None:
+    token = "mock-bot-token"
+    respx.post(f"https://api.telegram.org/bot{token}/editMessageText").respond(
+        status_code=200,
+        json={"ok": True, "result": {"message_id": 42, "text": "Updated content"}},
+    )
+
+    bot = TelegramBotClient(token=token)
+    res = await bot.edit_message_text(chat_id=12345, message_id=42, text="Updated content")
+    assert res.get("ok") is True
+    assert res.get("result", {}).get("text") == "Updated content"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_telegram_fight_similarity_rejection_updates_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    from thesisclaw.arena.models import Fighter, FighterKind, FightRecord, FightState
+
+    monkeypatch.setattr("thesisclaw.config.settings.settings.telegram_allowed_ids", "111")
+
+    # Mock run_fight to reject due to low similarity and invoke on_progress("rejected", ...)
+    async def fake_run_fight(fighter_a, fighter_b, *, fight_id=None, token_cap=None, min_similarity=0.35, on_progress=None):
+        reason = (
+            "🚫 **Paper Arena Fight Ineligible (< 0.35 Gate)**\n\n"
+            "• **Matchup:** Ground Thesis 🆚 arXiv:2608.99999\n"
+            "• **Similarity Score:** `15%` (Required Minimum: `≥ 35%`)\n"
+            "• **Reason:** This paper is out-of-scope."
+        )
+        if on_progress:
+            await on_progress("rejected", reason)
+
+    record = FightRecord(
+        fight_id="fight-rej-test",
+        fighter_a=Fighter(kind=FighterKind.GROUND, doc_id="ground"),
+        fighter_b=Fighter(kind=FighterKind.PAPER, doc_id="2608.99999"),
+        state=FightState.REJECTED,
+        error="Similarity score 0.15 is below threshold 0.35",
+    )
+
+    monkeypatch.setattr("thesisclaw.arena.graph.run_fight", fake_run_fight)
+    monkeypatch.setattr("thesisclaw.arena.memory.get_fight", lambda fid: record)
+
+    token = "mock-bot-token"
+    edit_payloads: list[dict[str, Any]] = []
+
+    respx.post(f"https://api.telegram.org/bot{token}/sendMessage").respond(
+        status_code=200, json={"ok": True, "result": {"message_id": 888}}
+    )
+
+    def mock_edit(request: httpx.Request) -> httpx.Response:
+        edit_payloads.append(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(200, json={"ok": True})
+
+    respx.post(f"https://api.telegram.org/bot{token}/editMessageText").mock(side_effect=mock_edit)
+
+    bot = TelegramBotClient(token=token)
+    bot.seen_users.add(111)
+
+    await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "/fight 2608.99999"}
+    })
+
+    # Wait briefly for background task
+    import asyncio
+    await asyncio.sleep(0.05)
+
+    # editMessageText must have received the rejection card
+    assert len(edit_payloads) >= 1
+    rejection_card = edit_payloads[0]["text"]
+    assert "Paper Arena Fight Ineligible (< 0.35 Gate)" in rejection_card
+    assert "Similarity Score:" in rejection_card
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_telegram_fight_live_progress_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+    from thesisclaw.arena.models import Fighter, FighterKind, FightRecord, FightState, MergedVerdict
+
+    monkeypatch.setattr("thesisclaw.config.settings.settings.telegram_allowed_ids", "111")
+
+    # Mock run_fight invoking on_progress for several debate stages
+    async def fake_run_fight(fighter_a, fighter_b, *, fight_id=None, token_cap=None, min_similarity=0.35, on_progress=None):
+        if on_progress:
+            await on_progress("moderator_setup", "🔔 R0: Moderator framed focal questions")
+            await on_progress("cross_exam", "⚔️ R2: Direct cross-examination complete")
+            await on_progress("common_ground", "🤝 R3: Synthesizing common ground")
+            await on_progress("judge_run_1", "⚖️ Judge: Dual Nemotron run 1 completed")
+        return MergedVerdict(
+            fight_id=fight_id or "fight-live",
+            winner="fighter_a",
+            swap_agreement=0.92,
+            final_scores={"fighter_a": 4.5, "fighter_b": 3.8},
+            ranked_ideas=["idea_alpha"],
+            all_entries_verified_ratio=0.95,
+            struck_count=0,
+            upheld_count=5,
+        )
+
+    record = FightRecord(
+        fight_id="fight-live",
+        fighter_a=Fighter(kind=FighterKind.GROUND, doc_id="ground"),
+        fighter_b=Fighter(kind=FighterKind.PAPER, doc_id="2608.12345"),
+        state=FightState.DONE,
+    )
+
+    monkeypatch.setattr("thesisclaw.arena.graph.run_fight", fake_run_fight)
+    monkeypatch.setattr("thesisclaw.arena.memory.get_fight", lambda fid: record)
+
+    token = "mock-bot-token"
+    sent_payloads: list[dict[str, Any]] = []
+    edit_payloads: list[dict[str, Any]] = []
+
+    def mock_send(request: httpx.Request) -> httpx.Response:
+        data = json.loads(request.content.decode("utf-8"))
+        sent_payloads.append(data)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 999}})
+
+    def mock_edit(request: httpx.Request) -> httpx.Response:
+        data = json.loads(request.content.decode("utf-8"))
+        edit_payloads.append(data)
+        return httpx.Response(200, json={"ok": True})
+
+    respx.post(f"https://api.telegram.org/bot{token}/sendMessage").mock(side_effect=mock_send)
+    respx.post(f"https://api.telegram.org/bot{token}/editMessageText").mock(side_effect=mock_edit)
+
+    bot = TelegramBotClient(token=token)
+    bot.seen_users.add(111)
+
+    await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "/fight 2608.12345"}
+    })
+
+    import asyncio
+    await asyncio.sleep(0.05)
+
+    # Initial message sent + final verdict message sent
+    assert len(sent_payloads) >= 2
+    assert "Paper Arena Fight Queued!" in sent_payloads[0]["text"]
+    assert "Fight Verdict:" in sent_payloads[1]["text"]
+
+    # In-place edits took place through rounds
+    assert len(edit_payloads) >= 4
+    # Check that Common Ground and Judge round were reported in edits
+    all_edit_text = " ".join(e["text"] for e in edit_payloads)
+    assert "common ground" in all_edit_text.lower() or "R3" in all_edit_text
+    assert "judge" in all_edit_text.lower() or "Nemotron" in all_edit_text
+
+

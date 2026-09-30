@@ -125,6 +125,7 @@ def test_ask_paper_tool(monkeypatch):
 def test_start_fight_tool(monkeypatch):
     # Patch run_fight to not actually run LLMs
     monkeypatch.setattr("thesisclaw.arena.graph.run_fight", AsyncMock(return_value=None))
+    monkeypatch.setattr("thesisclaw.arena.select.is_fight_eligible", lambda ta, tb, threshold=0.35: (True, 0.72))
 
     resp = client.post(
         "/mcp/tools/start_fight",

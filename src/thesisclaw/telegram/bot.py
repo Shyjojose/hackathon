@@ -68,6 +68,36 @@ class TelegramBotClient:
                 resp = await client.post(url, json=payload)
             return resp.json() if resp.status_code == 200 else {}
 
+    async def edit_message_text(
+        self,
+        chat_id: int | str,
+        message_id: int,
+        text: str,
+        parse_mode: str = "Markdown",
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Edit an existing message in a telegram chat with optional inline keyboard."""
+        if not self.token:
+            logger.warning("TELEGRAM_BOT_TOKEN not configured; message edit dropped.")
+            return {}
+
+        url = f"{self.base_url}/editMessageText"
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": parse_mode,
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json=payload)
+            if resp.status_code != 200:
+                payload["parse_mode"] = ""
+                resp = await client.post(url, json=payload)
+            return resp.json() if resp.status_code == 200 else {}
+
     async def send_document(
         self,
         chat_id: int | str,
@@ -479,12 +509,15 @@ class TelegramBotClient:
             f"⚔️ **Paper Arena Fight Queued!**\n\n"
             f"• **Matchup:** {label_a} 🆚 {label_b}\n"
             f"• **Fight ID:** `{fight_id}`\n\n"
-            "⏳ _The LangGraph adversarial debate engine is running R1 Openings, R2 Cross-Exam, and dual-run judging... I will send the verdict when complete!_"
+            "⏳ _Checking thesis similarity gate (≥ 0.35) and framing debate questions..._"
         )
-        await self.send_message(chat_id, ack_msg)
+        sent = await self.send_message(chat_id, ack_msg)
+        status_msg_id = sent.get("result", {}).get("message_id") if isinstance(sent, dict) else None
 
         # Launch fight in background task and notify upon completion
-        asyncio.create_task(self._execute_and_notify_fight(chat_id, fighter_a, fighter_b, fight_id))
+        asyncio.create_task(
+            self._execute_and_notify_fight(chat_id, fighter_a, fighter_b, fight_id, status_msg_id)
+        )
         return f"Fight {fight_id} queued."
 
     async def _execute_and_notify_fight(
@@ -493,26 +526,69 @@ class TelegramBotClient:
         fighter_a: Any,
         fighter_b: Any,
         fight_id: str,
+        status_msg_id: int | None = None,
     ) -> None:
         """Run the fight graph in background and notify Telegram chat upon completion."""
         from thesisclaw.arena.graph import run_fight
         from thesisclaw.arena.memory import get_fight
+        from thesisclaw.arena.models import FightState
 
         base_url = self.get_base_page_url()
         fight_url = f"{base_url}/fight/{fight_id}"
 
-        try:
-            verdict = await run_fight(fighter_a, fighter_b, fight_id=fight_id)
-            record = get_fight(fight_id)
-            if not verdict or not record:
-                await self.send_message(
-                    chat_id,
-                    f"❌ **Fight Failed (`{fight_id}`):** Unable to complete debate. Please check logs.",
-                )
+        label_a = "Ground Thesis" if fighter_a.doc_id == "ground" else f"arXiv:{fighter_a.doc_id}"
+        label_b = "Ground Thesis" if fighter_b.doc_id == "ground" else f"arXiv:{fighter_b.doc_id}"
+
+        round_updates: list[str] = []
+
+        async def on_progress(step: str, message: str) -> None:
+            if step == "rejected":
+                if status_msg_id:
+                    await self.edit_message_text(chat_id, status_msg_id, message)
+                else:
+                    await self.send_message(chat_id, message)
                 return
 
-            label_a = "Ground Thesis" if fighter_a.doc_id == "ground" else f"arXiv:{fighter_a.doc_id}"
-            label_b = "Ground Thesis" if fighter_b.doc_id == "ground" else f"arXiv:{fighter_b.doc_id}"
+            if message not in round_updates:
+                round_updates.append(message)
+                bullets = "\n".join(f"• {u}" for u in round_updates)
+                live_text = (
+                    f"⚔️ **Paper Arena Debate in Progress (`{fight_id}`)**\n\n"
+                    f"• **Matchup:** {label_a} 🆚 {label_b}\n\n"
+                    f"**Live Debate Feed:**\n{bullets}\n\n"
+                    f"⏳ _Debate graph active..._"
+                )
+                if status_msg_id:
+                    await self.edit_message_text(chat_id, status_msg_id, live_text)
+
+        try:
+            verdict = await run_fight(fighter_a, fighter_b, fight_id=fight_id, on_progress=on_progress)
+            record = get_fight(fight_id)
+            if not record:
+                if status_msg_id:
+                    await self.edit_message_text(
+                        chat_id,
+                        status_msg_id,
+                        f"❌ **Fight Failed (`{fight_id}`):** Record not found. Please check logs.",
+                    )
+                else:
+                    await self.send_message(
+                        chat_id,
+                        f"❌ **Fight Failed (`{fight_id}`):** Record not found. Please check logs.",
+                    )
+                return
+
+            if record.state == FightState.REJECTED:
+                return
+
+            if not verdict or record.state == FightState.FAILED:
+                err_detail = f"\nReason: {record.error}" if record.error else ""
+                fail_msg = f"❌ **Fight Failed (`{fight_id}`):** Unable to complete debate.{err_detail}"
+                if status_msg_id:
+                    await self.edit_message_text(chat_id, status_msg_id, fail_msg)
+                else:
+                    await self.send_message(chat_id, fail_msg)
+                return
 
             winner_name = "Draw 🤝"
             if verdict.winner == "fighter_a":
@@ -528,6 +604,17 @@ class TelegramBotClient:
             ideas_preview = ""
             if verdict.ranked_ideas:
                 ideas_preview = f"\n💡 **Novel Ideas Discovered:** `{len(verdict.ranked_ideas)}` generated\n"
+
+            # Finalize progress card
+            if status_msg_id and round_updates:
+                bullets = "\n".join(f"• {u}" for u in round_updates)
+                done_feed = (
+                    f"⚔️ **Paper Arena Debate Concluded (`{fight_id}`)**\n\n"
+                    f"• **Matchup:** {label_a} 🆚 {label_b}\n\n"
+                    f"**Completed Debate Feed:**\n{bullets}\n\n"
+                    f"✅ _All rounds, verification, and dual judging finished!_"
+                )
+                await self.edit_message_text(chat_id, status_msg_id, done_feed)
 
             msg = (
                 f"⚔️ **Fight Verdict: {label_a} vs {label_b}**\n\n"

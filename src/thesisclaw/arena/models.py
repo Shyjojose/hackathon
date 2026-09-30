@@ -35,6 +35,7 @@ class FightState(str, Enum):
     JUDGING = "judging"
     DONE = "done"
     FAILED = "failed"
+    REJECTED = "rejected"
 
 
 # ── Core models ───────────────────────────────────────────────────────────────

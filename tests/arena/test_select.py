@@ -110,3 +110,35 @@ def test_get_candidates_from_db(tmp_path: Path):
 def test_get_candidates_from_nonexistent_db(tmp_path: Path):
     candidates = get_candidates_from_db(tmp_path / "missing.db")
     assert candidates == []
+
+
+def test_compute_similarity_empty():
+    from thesisclaw.arena.select import compute_similarity
+    assert compute_similarity("", "some text") == 0.0
+    assert compute_similarity("some text", "") == 0.0
+
+
+def test_compute_similarity_and_eligibility(monkeypatch):
+    _mock_semantic_embed(monkeypatch)
+    from thesisclaw.arena.select import SIMILARITY_MIN_GATE, compute_similarity, is_fight_eligible
+
+    text_asr = "Speech recognition on ARM Cortex with INT4 quantization"
+    text_relevant = "Low latency ASR inference on embedded edge"
+    text_unrelated = "Galactic rotation in astrophysics cosmology"
+
+    # Similar topics should have high similarity
+    sim_high = compute_similarity(text_asr, text_relevant)
+    assert sim_high > 0.9
+
+    # Unrelated topics should have low similarity
+    sim_low = compute_similarity(text_asr, text_unrelated)
+    assert sim_low < SIMILARITY_MIN_GATE
+
+    # Test is_fight_eligible gate
+    eligible_high, score_high = is_fight_eligible(text_asr, text_relevant)
+    assert eligible_high is True
+    assert score_high >= SIMILARITY_MIN_GATE
+
+    eligible_low, score_low = is_fight_eligible(text_asr, text_unrelated)
+    assert eligible_low is False
+    assert score_low < SIMILARITY_MIN_GATE

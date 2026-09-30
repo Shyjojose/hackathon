@@ -26,9 +26,11 @@ Security:
 """
 from __future__ import annotations
 
+import inspect
 import logging
 import operator
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
@@ -57,6 +59,7 @@ from thesisclaw.arena.models import (
     Stance,
     Verdict,
 )
+from thesisclaw.arena.select import SIMILARITY_MIN_GATE, is_fight_eligible
 from thesisclaw.arena.verify import compute_verified_ratio as _compute_ratio
 from thesisclaw.arena.verify import verify_all_entries
 from thesisclaw.config.settings import settings
@@ -914,11 +917,13 @@ async def run_fight(
     *,
     fight_id: str | None = None,
     token_cap: int = DEFAULT_TOKEN_CAP,
+    min_similarity: float = SIMILARITY_MIN_GATE,
+    on_progress: Callable[[str, str], Any] | None = None,
 ) -> MergedVerdict | None:
     """
     Run a complete fight end-to-end.
     Creates a new fight_id if not provided.
-    Returns the MergedVerdict or None on failure.
+    Returns the MergedVerdict or None on failure or rejection.
     Resumable: pass the same fight_id to resume a killed fight.
     """
     if fight_id is None:
@@ -938,13 +943,71 @@ async def run_fight(
     doc_a = docs[fighter_a.doc_id]
     doc_b = docs[fighter_b.doc_id]
 
+    # Pre-flight similarity gate
+    eligible, sim_score = is_fight_eligible(
+        doc_a.get("text", ""),
+        doc_b.get("text", ""),
+        threshold=min_similarity,
+    )
+    if not eligible:
+        label_a = "Ground Thesis" if fighter_a.doc_id == "ground" else f"arXiv:{fighter_a.doc_id}"
+        label_b = "Ground Thesis" if fighter_b.doc_id == "ground" else f"arXiv:{fighter_b.doc_id}"
+        sim_pct = round(sim_score * 100)
+        min_pct = round(min_similarity * 100)
+        rejection_reason = (
+            f"🚫 **Paper Arena Fight Ineligible (< {min_similarity:.2f} Gate)**\n\n"
+            f"• **Matchup:** {label_a} 🆚 {label_b}\n"
+            f"• **Similarity Score:** `{sim_pct}%` (Required Minimum: `≥ {min_pct}%`)\n"
+            f"• **Reason:** This paper is out-of-scope for the Raspberry Pi 5 edge speech recognition thesis anchor.\n\n"
+            f"_Debates are restricted to papers that directly validate, extend, or challenge our quantization, latency, or memory claims._"
+        )
+        logger.warning("[%s] Fight rejected: similarity %.3f < %.2f", fight_id, sim_score, min_similarity)
+        upsert_fight(FightRecord(
+            fight_id=fight_id, fighter_a=fighter_a, fighter_b=fighter_b,
+            state=FightState.REJECTED, error=rejection_reason,
+        ))
+        if on_progress:
+            try:
+                res = on_progress("rejected", rejection_reason)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[%s] on_progress failed for rejection: %s", fight_id, exc)
+        return None
+
     state = _initial_state(fight_id, fighter_a, fighter_b, doc_a, doc_b, token_cap)
     config = {"configurable": {"thread_id": fight_id}}
 
+    node_commentary = {
+        "moderator_setup": "🔔 R0: Moderator framed focal questions & debate boundaries",
+        "fighter_a_node": "🥊 R1: Opening claims filed with verified citations",
+        "fighter_b_node": "🥊 R1: Opening claims filed with verified citations",
+        "cross_exam": "⚔️ R2: Direct cross-examination & quote challenges complete",
+        "moderator_followups": "🔥 R2b: Moderator pressed on sharpest contradictions",
+        "common_ground": "🤝 R3: Synthesizing common ground & forging novel ideas",
+        "verify_all": "🛡️ Verifier: Verbatim quotes verified against source preprints",
+        "judge_run_1": "⚖️ Judge: Dual Nemotron run 1 completed",
+        "judge_run_2": "⚖️ Judge: Dual Nemotron run 2 completed (sides swapped for symmetry)",
+        "merge_verdicts": "📊 Verdicts merged & swap agreement evaluated",
+        "publish_fight": "🏁 Debate concluded & published",
+    }
+
+    final_verdict: dict | None = None
     try:
-        result = arena_graph.invoke(state, config=config)
-        if result and result.get("final_verdict"):
-            return MergedVerdict(**result["final_verdict"])
+        for event in arena_graph.stream(state, config=config):
+            for node_name, node_output in event.items():
+                if node_name == "merge_verdicts" and isinstance(node_output, dict) and "final_verdict" in node_output:
+                    final_verdict = node_output["final_verdict"]
+                if on_progress and node_name in node_commentary:
+                    try:
+                        res = on_progress(node_name, node_commentary[node_name])
+                        if inspect.isawaitable(res):
+                            await res
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("[%s] on_progress failed for %s: %s", fight_id, node_name, exc)
+
+        if final_verdict:
+            return MergedVerdict(**final_verdict)
     except Exception as exc:  # noqa: BLE001
         logger.error("[%s] Fight graph error: %s", fight_id, exc)
         upsert_fight(FightRecord(

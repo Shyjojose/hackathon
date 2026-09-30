@@ -313,3 +313,81 @@ def test_compiled_graph_parallel_openings_no_concurrent_update_error(monkeypatch
     assert len(final_state["entries_a"]) >= 1
     assert len(final_state["entries_b"]) >= 1
 
+
+async def test_run_fight_similarity_gate_rejection(monkeypatch, tmp_path):
+    """Fights between texts below similarity gate (< 0.35) must be rejected."""
+    graph_mod, mem_mod = _patch_fights_dir(monkeypatch, tmp_path)
+    mem_mod.init_arena_db()
+
+    async def mock_load_docs(doc_a_id, doc_b_id):
+        return {
+            doc_a_id: {"text": "Raspberry Pi 5 edge speech recognition", "sections": {}},
+            doc_b_id: {"text": "Deep sea biology marine biodiversity", "sections": {}},
+        }
+
+    monkeypatch.setattr("thesisclaw.arena.graph.load_fighter_docs", mock_load_docs)
+    monkeypatch.setattr("thesisclaw.arena.graph.is_fight_eligible", lambda ta, tb, threshold=0.35: (False, 0.12))
+
+    received_progress = []
+
+    async def on_progress(step, msg):
+        received_progress.append((step, msg))
+
+    fa = Fighter(kind=FighterKind.GROUND, doc_id="ground")
+    fb = Fighter(kind=FighterKind.PAPER, doc_id="2608.99999")
+
+    verdict = await graph_mod.run_fight(fa, fb, fight_id="f-rej-01", on_progress=on_progress)
+    assert verdict is None
+
+    # Check DB record is REJECTED
+    record = mem_mod.get_fight("f-rej-01")
+    assert record is not None
+    assert record.state.value == "rejected"
+    assert "Ineligible" in record.error or "Similarity score" in record.error
+
+    # Check progress callback was notified of rejection
+    assert len(received_progress) == 1
+    assert received_progress[0][0] == "rejected"
+    assert "Ineligible" in received_progress[0][1]
+
+
+async def test_run_fight_streaming_with_progress(monkeypatch, tmp_path):
+    """run_fight should stream progress updates through each debate stage."""
+    graph_mod, mem_mod = _patch_fights_dir(monkeypatch, tmp_path)
+    mem_mod.init_arena_db()
+
+    async def mock_load_docs(doc_a_id, doc_b_id):
+        return {
+            doc_a_id: {"text": "Edge ASR model quantization INT4", "sections": {}},
+            doc_b_id: {"text": "Speculative decoding for edge ASR", "sections": {}},
+        }
+
+    monkeypatch.setattr("thesisclaw.arena.graph.load_fighter_docs", mock_load_docs)
+    monkeypatch.setattr("thesisclaw.arena.graph.is_fight_eligible", lambda ta, tb, threshold=0.35: (True, 0.88))
+
+    steps_recorded = []
+
+    async def on_progress(step, msg):
+        steps_recorded.append((step, msg))
+
+    fa = Fighter(kind=FighterKind.GROUND, doc_id="ground")
+    fb = Fighter(kind=FighterKind.PAPER, doc_id="2608.12345")
+
+    with _make_null_llm_patcher():
+        verdict = await graph_mod.run_fight(fa, fb, fight_id="f-stream-01", on_progress=on_progress)
+
+    assert verdict is not None
+    assert verdict.fight_id == "f-stream-01"
+
+    # Verify that on_progress captured key debate milestones
+    step_names = [s[0] for s in steps_recorded]
+    assert "moderator_setup" in step_names
+    assert "cross_exam" in step_names
+    assert "common_ground" in step_names
+    assert "verify_all" in step_names
+    assert "merge_verdicts" in step_names
+
+    # Check commentary strings are descriptive
+    cg_msg = next(msg for step, msg in steps_recorded if step == "common_ground")
+    assert "common ground" in cg_msg.lower() or "R3" in cg_msg
+

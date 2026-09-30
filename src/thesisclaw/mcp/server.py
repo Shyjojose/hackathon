@@ -122,11 +122,11 @@ async def start_fight_tool(payload: dict[str, Any]) -> dict[str, Any]:
     import asyncio
     import uuid
 
-    from thesisclaw.arena.docs import load_fighter_doc
+    from thesisclaw.arena.docs import load_fighter_docs
     from thesisclaw.arena.graph import run_fight
     from thesisclaw.arena.memory import upsert_fight
     from thesisclaw.arena.models import Fighter, FighterKind, FightRecord, FightState
-    from thesisclaw.arena.select import get_candidates_from_db, top_opponent
+    from thesisclaw.arena.select import get_candidates_from_db, is_fight_eligible, top_opponent
 
     a_id = payload.get("a")
     b_id = payload.get("b")
@@ -135,9 +135,13 @@ async def start_fight_tool(payload: dict[str, Any]) -> dict[str, Any]:
     # Determine fighters
     if a_id is None and b_id is None:
         # Auto: Ground vs most similar from DB
-        ground_doc = await load_fighter_doc("ground", "ground")
+        try:
+            docs = await load_fighter_docs("ground", "ground")
+            ground_text = docs.get("ground", {}).get("text", "")
+        except Exception:  # noqa: BLE001
+            ground_text = ""
         candidates = get_candidates_from_db(settings.checkpoints_dir / "thesisclaw.sqlite3")
-        best = top_opponent(ground_doc["text"], candidates)
+        best = top_opponent(ground_text, candidates)
         if best is None:
             return {"error": "No papers found in DB for auto-fight. Run /briefing first to ingest papers.", "fight_id": None}
         fighter_a = Fighter(kind=FighterKind.GROUND, doc_id="ground")
@@ -148,6 +152,36 @@ async def start_fight_tool(payload: dict[str, Any]) -> dict[str, Any]:
     else:
         fighter_a = Fighter(kind=FighterKind.PAPER, doc_id=a_id)
         fighter_b = Fighter(kind=FighterKind.PAPER, doc_id=b_id)
+
+    # Pre-flight eligibility check
+    try:
+        docs = await load_fighter_docs(fighter_a.doc_id, fighter_b.doc_id)
+        text_a = docs.get(fighter_a.doc_id, {}).get("text", "")
+        text_b = docs.get(fighter_b.doc_id, {}).get("text", "")
+        eligible, sim_score = is_fight_eligible(text_a, text_b)
+        if not eligible:
+            reason = (
+                f"Similarity score {sim_score:.3f} is below the required 0.35 threshold. "
+                "Papers must share sufficient topical overlap to conduct a meaningful debate."
+            )
+            record = FightRecord(
+                fight_id=fight_id,
+                fighter_a=fighter_a,
+                fighter_b=fighter_b,
+                state=FightState.REJECTED,
+                error=reason,
+            )
+            upsert_fight(record)
+            return {
+                "fight_id": fight_id,
+                "fighter_a": fighter_a.doc_id,
+                "fighter_b": fighter_b.doc_id,
+                "status": "rejected",
+                "similarity": round(sim_score, 3),
+                "error": reason,
+            }
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Failed to load documents: {exc}", "fight_id": None}
 
     # Register fight as queued
     record = FightRecord(fight_id=fight_id, fighter_a=fighter_a, fighter_b=fighter_b, state=FightState.QUEUED)
@@ -161,6 +195,7 @@ async def start_fight_tool(payload: dict[str, Any]) -> dict[str, Any]:
         "fighter_a": fighter_a.doc_id,
         "fighter_b": fighter_b.doc_id,
         "status": "queued",
+        "similarity": round(sim_score, 3),
         "message": f"Fight {fight_id} started. Use fight_status to track progress.",
     }
 

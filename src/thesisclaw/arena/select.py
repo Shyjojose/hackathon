@@ -21,6 +21,7 @@ from typing import NamedTuple
 from thesisclaw.tools.embed import cosine_similarity, embed_text
 
 TAU_DEFAULT: float = 0.65
+SIMILARITY_MIN_GATE: float = 0.35
 
 # In-memory embedding cache: {text_hash: embedding}
 _embedding_cache: dict[int, list[float]] = {}
@@ -32,6 +33,28 @@ def _cached_embed(text: str) -> list[float]:
     if key not in _embedding_cache:
         _embedding_cache[key] = embed_text(text)
     return _embedding_cache[key]
+
+
+def compute_similarity(text_a: str, text_b: str) -> float:
+    """Compute cosine similarity between two texts using cached embeddings."""
+    if not text_a or not text_b:
+        return 0.0
+    vec_a = _cached_embed(text_a[:8000])
+    vec_b = _cached_embed(text_b[:8000])
+    return cosine_similarity(vec_a, vec_b)
+
+
+def is_fight_eligible(
+    text_a: str,
+    text_b: str,
+    threshold: float = SIMILARITY_MIN_GATE,
+) -> tuple[bool, float]:
+    """
+    Check if two documents meet the minimum similarity threshold for a meaningful fight.
+    Returns (is_eligible, similarity_score).
+    """
+    score = compute_similarity(text_a, text_b)
+    return score >= threshold, score
 
 
 class RankedOpponent(NamedTuple):

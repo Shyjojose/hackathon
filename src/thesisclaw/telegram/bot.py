@@ -120,6 +120,7 @@ class TelegramBotClient:
             "I am your autonomous research partner monitoring academic literature for your "
             "Raspberry Pi 5 Edge AI thesis.\n\n"
             "🏷️ **Communication Tags & Commands:**\n"
+            "• `/research [topic]` — Autonomous scout discovers & evaluates 3 brand new unreviewed papers\n"
             "• `/history` — Full chronological log of all reviewed research papers\n"
             "• `/similar` — List of papers found similar / aligned with thesis\n"
             "• `/discarded` — List of discarded / out-of-scope papers with rejection reasons\n"
@@ -131,10 +132,11 @@ class TelegramBotClient:
             "• `/notes` — Access the human approval gate for code & experiment proposals\n"
             "• `/help` — Display this communication guide\n\n"
             "💬 **Ways to Interact:**\n"
+            "• **Research Scout:** Tap `🔍 Research 3 New Papers` or run `/research` to discover and evaluate novel arXiv literature on demand.\n"
             "• **arXiv Links:** Paste any arXiv link (e.g. `https://arxiv.org/abs/2410.05229`) "
             "to run an instant deep analysis, generate a 4-tab dashboard, and receive the offline `.html` document.\n"
             "• **AI Research Chat:** Ask questions like *'How many papers have been reviewed?'*, "
-            "*'Which papers were discarded and why?'*, or *'Explain INT4 quantization'*.\n"
+            "*'Which papers were discarded and why?'*, or *'Find 3 new papers'*.\n"
             "• **Voice Companion:** Speak with the XiaoZhi ESP32-S3 voice bridge for hands-free queries.\n"
             "• **Approval Gate:** Review and approve proposed experiments at `/notes`.\n\n"
             f"📱 **Mobile Browser on Wi-Fi:** Open `http://{lan_ip}:{settings.mcp_port}/papers/`\n\n"
@@ -142,10 +144,11 @@ class TelegramBotClient:
         )
         reply_markup = {
             "keyboard": [
-                [{"text": "📚 Review History"}, {"text": "🔗 Paper Links"}],
+                [{"text": "🔍 Research 3 New Papers"}, {"text": "📚 Review History"}],
                 [{"text": "🟢 Similar Papers"}, {"text": "🚫 Discarded Papers"}],
-                [{"text": "📰 Briefing"}, {"text": "🎯 View Thesis"}],
-                [{"text": "⚙️ Agent Status"}, {"text": "🔬 Approval Gate"}],
+                [{"text": "🔗 Paper Links"}, {"text": "📰 Briefing"}],
+                [{"text": "🎯 View Thesis"}, {"text": "⚙️ Agent Status"}],
+                [{"text": "🔬 Approval Gate"}],
             ],
             "resize_keyboard": True,
             "is_persistent": True,
@@ -365,6 +368,85 @@ class TelegramBotClient:
         reply_markup = {"inline_keyboard": inline_buttons} if inline_buttons else None
         return "\n".join(lines), reply_markup
 
+    async def handle_research_request(self, chat_id: int, topic: str | None = None) -> str:
+        """Execute autonomous Research Scout Subagent: discover 3 brand new papers and reply with similarity scores and links."""
+        topic_desc = f" on '{topic}'" if topic else " matching thesis focus"
+        await self.send_message(
+            chat_id,
+            f"🔍 **Research Scout Subagent Activated**\n"
+            f"Scanning arXiv for 3 brand new, unreviewed research papers{topic_desc}... Please wait.",
+        )
+
+        try:
+            from thesisclaw.agent.subagents import research_scout_subagent
+
+            base_url = self.get_base_page_url()
+            result = await research_scout_subagent(
+                query=topic,
+                limit=3,
+                base_url=base_url,
+            )
+
+            if not result.papers:
+                await self.send_message(
+                    chat_id,
+                    f"ℹ️ **No new papers discovered:** Scanned {result.total_scanned} candidate papers on arXiv, but all matching papers have already been evaluated!\n"
+                    "Try specifying a different sub-topic with `/research [query]`.",
+                )
+                return "No new papers."
+
+            msg_lines = [
+                f"🎯 **Discovered {len(result.papers)} Brand New Research Papers!**",
+                f"_(Scanned {result.total_scanned} candidates from arXiv, skipped all previously reviewed papers)_\n",
+            ]
+
+            inline_buttons = []
+            for i, p in enumerate(result.papers, 1):
+                badge = {
+                    VerdictEnum.SUPPORT: "🟢 [SUPPORTS THESIS]",
+                    VerdictEnum.EXTEND: "🟡 [EXTENDS THESIS]",
+                    VerdictEnum.THREATEN: "🔴 [THREATENS THESIS]",
+                    VerdictEnum.IRRELEVANT: "⚪ [IRRELEVANT]",
+                }.get(p.verdict, "ℹ️")
+                pct = round(p.similarity_score * 100)
+                msg_lines.extend([
+                    f"**{i}. {p.title}** (arXiv:{p.arxiv_id})",
+                    f"• 🎯 **Similarity Score:** `{pct}%` (`{p.similarity_score:.2f}`)",
+                    f"• 🏷️ **Verdict:** {badge}",
+                    f"• 💡 **Reason:** _{p.reason}_",
+                    f"• 📄 **arXiv:** {p.arxiv_url}",
+                    f"• 🌐 **4-Tab Breakdown:** {p.dashboard_url}",
+                    "",
+                ])
+                inline_buttons.append([
+                    {"text": f"🌐 Read arXiv:{p.arxiv_id} Breakdown", "url": p.dashboard_url}
+                ])
+
+            msg_lines.append("Use `/history` to view your updated audit log or tap any paper breakdown link above!")
+
+            reply_markup = {"inline_keyboard": inline_buttons} if inline_buttons else None
+            await self.send_message(chat_id, "\n".join(msg_lines), reply_markup=reply_markup)
+
+            # Send offline .html document attachments directly to chat
+            for p in result.papers:
+                doc_path = Path(f"site/public/papers/{p.arxiv_id}/index.html")
+                if doc_path.exists():
+                    try:
+                        pct = round(p.similarity_score * 100)
+                        await self.send_document(
+                            chat_id,
+                            doc_path,
+                            caption=f"📄 Offline 4-Tab Breakdown (arXiv:{p.arxiv_id}) | Similarity: {pct}% | Verdict: {p.verdict.value.upper()}",
+                        )
+                    except Exception as doc_exc:  # noqa: BLE001
+                        logger.debug("Failed sending document attachment for %s: %s", p.arxiv_id, doc_exc)
+
+            return "Research handled."
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Research Scout Subagent failed: %s", exc)
+            await self.send_message(chat_id, f"❌ Research Scout Subagent encountered an error: {exc}")
+            return f"Error: {exc}"
+
     def format_thesis_message(self) -> str:
         """Format active thesis claims, hypotheses, and benchmark targets."""
         path = settings.resolve_memory_path()
@@ -519,6 +601,7 @@ class TelegramBotClient:
         url = f"{self.base_url}/setMyCommands"
         commands = [
             {"command": "start", "description": "Welcome guide & all communication tags"},
+            {"command": "research", "description": "Scout & evaluate 3 brand new unreviewed papers"},
             {"command": "history", "description": "Full literature review history & counts"},
             {"command": "similar", "description": "List papers matching/extending thesis"},
             {"command": "discarded", "description": "List discarded papers with rejection reasons"},
@@ -564,6 +647,28 @@ class TelegramBotClient:
             await self.send_message(chat_id, msg, reply_markup=reply_markup)
             if text.startswith(("/start", "/help")) or text.lower() in ["hi", "hello", "hey"]:
                 return "Start handled."
+
+        # Command /research or /scout or button tap or conversational triggers
+        if (
+            text.startswith(("/research", "/scout"))
+            or text == "🔍 Research 3 New Papers"
+            or any(
+                phrase in text.lower()
+                for phrase in [
+                    "find 3 new papers",
+                    "research new papers",
+                    "find new papers",
+                    "scout papers",
+                    "research 3 papers",
+                    "scout 3 papers",
+                    "find papers for me",
+                ]
+            )
+        ):
+            topic = None
+            if text.startswith(("/research ", "/scout ")):
+                topic = text.split(" ", 1)[1].strip()
+            return await self.handle_research_request(chat_id, topic=topic)
 
         # Command /history or /reviews or button tap
         if text.startswith(("/history", "/reviews")) or text == "📚 Review History":

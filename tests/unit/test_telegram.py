@@ -399,3 +399,101 @@ async def test_telegram_history_discarded_similar_commands(
     assert "Discarded / Out-of-Scope Papers" in sent_payloads[-1]["text"]
     assert "Embedding similarity below threshold" in sent_payloads[-1]["text"]
 
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_telegram_research_scout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
+) -> None:
+    monkeypatch.setattr("thesisclaw.config.settings.settings.telegram_allowed_ids", "111")
+    monkeypatch.setattr("thesisclaw.config.settings.settings.checkpoints_dir", str(tmp_path))
+    token = "mock-bot-token"
+
+    sent_payloads: list[dict[str, Any]] = []
+
+    def capture_message(request: httpx.Request) -> httpx.Response:
+        sent_payloads.append(json.loads(request.content.decode()))
+        return httpx.Response(status_code=200, json={"ok": True})
+
+    respx.post(f"https://api.telegram.org/bot{token}/sendMessage").mock(
+        side_effect=capture_message
+    )
+
+    from thesisclaw.models.paper import ResearchScoutResult, ScoutedPaper, VerdictEnum
+
+    mock_scout_result = ResearchScoutResult(
+        query="int4 speech",
+        total_scanned=8,
+        new_papers_found=3,
+        papers=[
+            ScoutedPaper(
+                arxiv_id="2609.11111",
+                title="INT4 Moonshine on Edge",
+                abstract="INT4 quantized model on Cortex-A76.",
+                similarity_score=0.84,
+                verdict=VerdictEnum.SUPPORT,
+                reason="Direct fit for edge ASR.",
+                arxiv_url="https://arxiv.org/abs/2609.11111",
+                dashboard_url="http://192.168.178.46:8080/papers/2609.11111/",
+            ),
+            ScoutedPaper(
+                arxiv_id="2609.22222",
+                title="Sliding Window KV Cache",
+                abstract="Bounded cache strategy.",
+                similarity_score=0.76,
+                verdict=VerdictEnum.EXTEND,
+                reason="Extends thesis attention mechanism.",
+                arxiv_url="https://arxiv.org/abs/2609.22222",
+                dashboard_url="http://192.168.178.46:8080/papers/2609.22222/",
+            ),
+            ScoutedPaper(
+                arxiv_id="2609.33333",
+                title="Memory Bandwidth Limits on Cortex",
+                abstract="Memory wall prevents RTF <= 0.5.",
+                similarity_score=0.68,
+                verdict=VerdictEnum.THREATEN,
+                reason="Warns of bus bandwidth bottleneck.",
+                arxiv_url="https://arxiv.org/abs/2609.33333",
+                dashboard_url="http://192.168.178.46:8080/papers/2609.33333/",
+            ),
+        ],
+        summary_text="Scanned 8 candidates and found 3 new papers.",
+    )
+
+    async def mock_research_scout(*args: Any, **kwargs: Any) -> ResearchScoutResult:
+        return mock_scout_result
+
+    monkeypatch.setattr("thesisclaw.agent.subagents.research_scout_subagent", mock_research_scout)
+
+    bot = TelegramBotClient(token=token)
+    bot.seen_users.add(111)
+
+    # 1. Test /research command
+    res_cmd = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "/research INT4 on ARM"}
+    })
+    assert res_cmd == "Research handled."
+    assert any("Discovered 3 Brand New Research Papers" in p.get("text", "") for p in sent_payloads)
+    summary_msg = next(p["text"] for p in sent_payloads if "Discovered 3 Brand New" in p.get("text", ""))
+    assert "84%" in summary_msg
+    assert "76%" in summary_msg
+    assert "68%" in summary_msg
+    assert "https://arxiv.org/abs/2609.11111" in summary_msg
+    assert "http://192.168.178.46:8080/papers/2609.11111/" in summary_msg
+
+    # 2. Test quick reply button tap: "🔍 Research 3 New Papers"
+    sent_payloads.clear()
+    res_btn = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "🔍 Research 3 New Papers"}
+    })
+    assert res_btn == "Research handled."
+    assert any("Discovered 3 Brand New Research Papers" in p.get("text", "") for p in sent_payloads)
+
+    # 3. Test conversational query: "Can you find 3 new papers for my thesis?"
+    sent_payloads.clear()
+    res_chat = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "Can you find 3 new papers for my thesis?"}
+    })
+    assert res_chat == "Research handled."
+    assert any("Discovered 3 Brand New Research Papers" in p.get("text", "") for p in sent_payloads)
+

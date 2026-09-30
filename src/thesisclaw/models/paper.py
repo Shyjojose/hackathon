@@ -122,3 +122,26 @@ class EducationalBreakdown(BaseModel):
     mermaid_architecture: str = Field(default="", description="Mermaid flowchart definition of model architecture")
     mermaid_sequence: str = Field(default="", description="Mermaid sequence diagram of real-time streaming pipeline")
     chart_data: dict[str, Any] = Field(default_factory=dict, description="Benchmark and resource data points for Chart.js")
+
+
+class ScoutedPaper(BaseModel):
+    """An unreviewed paper discovered by the Research Scout Subagent."""
+
+    arxiv_id: str
+    title: str
+    abstract: str
+    similarity_score: float = Field(ge=0.0, le=1.0)
+    verdict: VerdictEnum
+    reason: str
+    arxiv_url: str
+    dashboard_url: str
+
+
+class ResearchScoutResult(BaseModel):
+    """Overall outcome of a Research Scout Subagent invocation."""
+
+    query: str
+    total_scanned: int
+    new_papers_found: int
+    papers: list[ScoutedPaper] = Field(default_factory=list)
+    summary_text: str = ""

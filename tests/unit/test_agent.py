@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import sqlite3
+from datetime import UTC, datetime
+from typing import Any
+
 import pytest
 import respx
 
@@ -131,5 +135,110 @@ def test_visualizer_subagent():
     assert "flowchart TD" in breakdown.mermaid_architecture
     assert "sequenceDiagram" in breakdown.mermaid_sequence
     assert "rtf" in breakdown.chart_data
+
+
+@pytest.mark.asyncio
+async def test_research_scout_subagent_deduplication(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    import arxiv
+
+    from thesisclaw.agent.subagents import research_scout_subagent
+
+    db_file = tmp_path / "test_scout.sqlite3"
+    with sqlite3.connect(db_file) as conn:
+        conn.execute(
+            """
+            CREATE TABLE processed_papers (
+                arxiv_id TEXT PRIMARY KEY,
+                title TEXT,
+                verdict TEXT,
+                confidence TEXT,
+                reason TEXT,
+                backed_ratio REAL,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute("INSERT INTO processed_papers (arxiv_id, title) VALUES ('2404.00001', 'Old Paper 1')")
+        conn.execute("INSERT INTO processed_papers (arxiv_id, title) VALUES ('2404.00002', 'Old Paper 2')")
+
+    class MockAuthor:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class MockCandidate:
+        def __init__(self, aid: str, title: str, summary: str) -> None:
+            self._aid = aid
+            self.title = title
+            self.summary = summary
+            self.authors = [MockAuthor("Author X")]
+            self.published = datetime(2026, 4, 1, tzinfo=UTC)
+            self.entry_id = f"https://arxiv.org/abs/{aid}"
+
+        def get_short_id(self) -> str:
+            return self._aid
+
+    candidates = [
+        MockCandidate("2404.00001v1", "Old Paper 1", "Old abstract"),
+        MockCandidate("2404.00002v1", "Old Paper 2", "Old abstract"),
+        MockCandidate("2404.00003v1", "Novel Speech Quantization on ARM", "Speech transcription with INT4 on Raspberry Pi"),
+        MockCandidate("2404.00004v1", "Ultra-low Latency ASR", "Low latency streaming ASR on edge devices"),
+        MockCandidate("2404.00005v1", "Speculative Edge Decoding", "Accelerating edge models via speculative decoding"),
+        MockCandidate("2404.00006v1", "Extra Paper", "Should not be processed because limit is 3"),
+    ]
+
+    class MockClient:
+        def results(self, search: Any) -> Any:
+            return iter(candidates)
+
+    monkeypatch.setattr(arxiv, "Client", lambda: MockClient())
+
+    result = await research_scout_subagent(
+        query="speech quantization",
+        limit=3,
+        db_path=db_file,
+        base_url="http://192.168.178.46:8080",
+    )
+
+    assert result.new_papers_found == 3
+    assert len(result.papers) == 3
+
+    # Check that old papers were skipped and exactly 3 new papers were returned
+    paper_ids = [p.arxiv_id for p in result.papers]
+    assert paper_ids == ["2404.00003", "2404.00004", "2404.00005"]
+    assert "2404.00001" not in paper_ids
+    assert "2404.00002" not in paper_ids
+
+    # Check similarity scores and links
+    for p in result.papers:
+        assert 0.0 <= p.similarity_score <= 1.0
+        assert p.similarity_score > 0.3  # Keyword grounding provides realistic score
+        assert p.arxiv_url == f"https://arxiv.org/abs/{p.arxiv_id}"
+        assert p.dashboard_url == f"http://192.168.178.46:8080/papers/{p.arxiv_id}/"
+
+    # Check SQLite DB was updated to include all 5 papers
+    with sqlite3.connect(db_file) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM processed_papers")
+        count = cur.fetchone()[0]
+        assert count == 5
+
+    # Run again with same mock candidates: should skip 1-5 and find the 6th paper
+    result_second = await research_scout_subagent(
+        query="speech quantization",
+        limit=3,
+        db_path=db_file,
+    )
+    assert result_second.new_papers_found == 1
+    assert len(result_second.papers) == 1
+    assert result_second.papers[0].arxiv_id == "2404.00006"
+
+    # Run third time: all 6 papers are in DB, so exactly 0 new papers found
+    result_third = await research_scout_subagent(
+        query="speech quantization",
+        limit=3,
+        db_path=db_file,
+    )
+    assert result_third.new_papers_found == 0
+    assert len(result_third.papers) == 0
 
 

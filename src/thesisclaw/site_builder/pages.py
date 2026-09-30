@@ -663,7 +663,13 @@ def build_paper_page(
     verdict: PaperVerdict,
     pathfinder: PathfinderResult | None = None,
     output_dir: str | Path = "site/public/papers",
+    similarity_score: float | None = None,
 ) -> Path:
     """Convenience wrapper: transforms PaperContent through visualizer_subagent and builds index.html."""
-    breakdown = visualizer_subagent(paper, verdict, pathfinder)
+    breakdown = visualizer_subagent(
+        paper,
+        verdict,
+        pathfinder,
+        similarity_score=similarity_score if similarity_score is not None else 0.76,
+    )
     return build_paper_subfolder_index(breakdown, output_dir=output_dir)

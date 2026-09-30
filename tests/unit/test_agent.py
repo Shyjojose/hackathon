@@ -187,10 +187,13 @@ async def test_research_scout_subagent_deduplication(tmp_path: Any, monkeypatch:
     ]
 
     class MockClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
         def results(self, search: Any) -> Any:
             return iter(candidates)
 
-    monkeypatch.setattr(arxiv, "Client", lambda: MockClient())
+    monkeypatch.setattr(arxiv, "Client", MockClient)
 
     result = await research_scout_subagent(
         query="speech quantization",
@@ -240,5 +243,61 @@ async def test_research_scout_subagent_deduplication(tmp_path: Any, monkeypatch:
     )
     assert result_third.new_papers_found == 0
     assert len(result_third.papers) == 0
+
+
+@pytest.mark.asyncio
+async def test_research_scout_subagent_default_db_path(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import arxiv
+
+    from thesisclaw.agent.subagents import research_scout_subagent
+
+    # Test that default settings.checkpoints_dir (string) does not cause TypeError
+    monkeypatch.setattr("thesisclaw.config.settings.settings.checkpoints_dir", str(tmp_path))
+
+    class MockAuthor:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class MockCandidate:
+        def __init__(self, aid: str, title: str, summary: str) -> None:
+            self._aid = aid
+            self.title = title
+            self.summary = summary
+            self.authors = [MockAuthor("Author Y")]
+            self.published = datetime(2026, 4, 1, tzinfo=UTC)
+            self.entry_id = f"https://arxiv.org/abs/{aid}"
+
+        def get_short_id(self) -> str:
+            return self._aid
+
+    candidates = [
+        MockCandidate(
+            "2405.00001v1",
+            "Default Path Speech Quantization",
+            "Speech model with INT4 on edge",
+        ),
+    ]
+
+    class MockClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def results(self, search: Any) -> Any:
+            return iter(candidates)
+
+    monkeypatch.setattr(arxiv, "Client", MockClient)
+
+    # db_path=None tests the default settings path resolution (settings.checkpoints_path)
+    result = await research_scout_subagent(
+        query="speech quantization",
+        limit=1,
+        db_path=None,
+    )
+
+    assert result.new_papers_found == 1
+    assert len(result.papers) == 1
+    assert result.papers[0].arxiv_id == "2405.00001"
 
 

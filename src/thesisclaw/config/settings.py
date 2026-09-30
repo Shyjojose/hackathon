@@ -67,5 +67,10 @@ class Settings(BaseSettings):
         """Return absolute or relative path to root agent memory."""
         return Path(self.memory_root)
 
+    @property
+    def checkpoints_path(self) -> Path:
+        """Return Path object for checkpoints directory."""
+        return Path(self.checkpoints_dir)
+
 
 settings = Settings()

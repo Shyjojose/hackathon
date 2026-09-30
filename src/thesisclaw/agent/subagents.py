@@ -446,7 +446,7 @@ async def research_scout_subagent(
     from thesisclaw.site_builder.pages import build_paper_page
 
     # 1. Resolve DB path and retrieve existing paper IDs to guarantee deduplication
-    db_file = Path(db_path) if db_path else settings.checkpoints_dir / "thesisclaw.sqlite3"
+    db_file = Path(db_path) if db_path else settings.checkpoints_path / "thesisclaw.sqlite3"
     db_file.parent.mkdir(parents=True, exist_ok=True)
 
     existing_ids: set[str] = set()
@@ -481,12 +481,12 @@ async def research_scout_subagent(
     # 3. Determine search query
     clean_query = query.strip() if query and query.strip() else ""
     if not clean_query:
-        search_query = "cat:cs.CL OR cat:cs.AI OR int4 quantization OR speech recognition on edge"
+        search_query = "cat:cs.CL OR cat:cs.AI OR quantization OR edge"
     else:
         search_query = clean_query
 
-    # 4. Search arXiv candidates
-    client = arxiv.Client()
+    # 4. Search arXiv candidates with rate limit protections
+    client = arxiv.Client(page_size=10, delay_seconds=3.0, num_retries=3)
     search = arxiv.Search(
         query=search_query,
         max_results=max_search_depth,

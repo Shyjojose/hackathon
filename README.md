@@ -5,8 +5,10 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![uv](https://img.shields.io/badge/managed_by-uv-purple.svg)](https://github.com/astral-sh/uv)
 [![NVIDIA NIM](https://img.shields.io/badge/NVIDIA-NIM%20%2F%20Build-green.svg)](https://build.nvidia.com)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Debate%20Arena-orange.svg)](https://github.com/langchain-ai/langgraph)
 [![MCP v2](https://img.shields.io/badge/MCP-SDK%20v2%20Streamable%20HTTP-orange.svg)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/tests-124%20passed-brightgreen.svg)]()
+[![Cloudflare Tunnel](https://img.shields.io/badge/Cloudflare-Quick%20Tunnel%20HTTPS-f38020.svg)](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
+[![Tests](https://img.shields.io/badge/tests-147%20passed-brightgreen.svg)]()
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 **Hackathon Track:** NVIDIA Claw Agent Challenge: Berlin 🇩🇪  
@@ -42,94 +44,106 @@ Generic AI summarizers produce generic abstracts. **ThesisClaw is fundamentally 
 
 ## 🏛️ System Architecture & Information Flow
 
-ThesisClaw couples a system-level conversational interface with an isolated multi-subagent analysis engine and a physical edge hardware companion.
+ThesisClaw couples a system-level conversational interface with an isolated multi-subagent analysis engine, a LangGraph adversarial debate arena, an auto-managed Cloudflare HTTPS edge tunnel, and a physical edge hardware companion.
 
 ### 🔄 End-to-End Information Flow
 
-The diagram below maps the complete path of information through ThesisClaw: from paper ingestion and user commands, through the Model Context Protocol (MCP) gateway layer, into the **Deep Agents Orchestrator** and its sequential subagent pipeline, and out to storage, human verification gates, and client channels.
-
 ```mermaid
 flowchart TD
-    %% Trigger & Input Sources
+    %% Ingestion
     subgraph Ingestion ["1. Trigger & Ingestion Layer"]
         Arxiv["arXiv Preprint Firehose<br>(Nightly Scan / Backfill Jobs)"]
-        UserTG["Telegram User<br>(Direct link, query, or /briefing)"]
+        UserTG["Telegram User<br>(Links, /fight, /leaderboard, /ask)"]
         XiaoZhi["ESP32-S3 Physical Companion<br>(Voice queries via XiaoZhi firmware)"]
         ThesisMemory[("Central Thesis Profile<br>research/agent.md<br>(RPi5 Moonshine INT4 Baseline)")]
     end
 
-    %% Gateway & Interface Layer
-    subgraph Gateways ["2. Gateway & Protocol Layer"]
+    %% Edge, Gateway & Tunneling Layer
+    subgraph Gateways ["2. Gateway, Protocol & Edge Tunnel Layer"]
         OpenClaw["OpenClaw Gateway<br>(Host Node CLI, Telegram Bot API)"]
         VoiceBridge["Voice Bridge (voice/src/mcp_pipe.py)<br>(FastMCP v1, <=600 chars)"]
-        MCPServer["Unified MCP Streamable HTTP Server (:8080)<br>(/mcp, /voice-mcp, /notes, /stats)"]
+        CFTunnel["Cloudflare Quick Tunnel (src/thesisclaw/infra/tunnel.py)<br>• Auto-managed subprocess (zero config)<br>• Public HTTPS (trycloudflare.com)<br>• Enables Telegram Mobile WebApps"]
+        MCPServer["Unified MCP & Web Server (:8080)<br>(/mcp, /voice-mcp, /papers, /fight, /leaderboard, /notes)"]
     end
 
-    %% Deep Agents Core Orchestration
-    subgraph DeepAgentsCore ["3. Deep Agents Worker Core (Python 3.12 / uv)"]
-        Orch["ThesisOrchestrator (src/thesisclaw/agent/orchestrator.py)<br>• Token budget management<br>• Subagent delegation<br>• Resumable checkpoints"]
+    %% Worker Core
+    subgraph DeepAgentsCore ["3. Core Intelligence Engine (Python 3.12 / uv)"]
+        Orch["ThesisOrchestrator (orchestrator.py)<br>• Token budget management<br>• Subagent delegation<br>• Resumable checkpoints"]
 
-        subgraph Subagents ["Sequential Subagents Pipeline"]
-            Reader["Subagent 1: paper-reader<br>• Fetches HTML / PDF<br>• Extracts claims & verbatim quotes"]
-            Matcher["Subagent 2: thesis-matcher<br>• NVIDIA text embeddings<br>• Cosine similarity vs research/agent.md<br>• Verdict: SUPPORT / EXTEND / THREATEN / IRRELEVANT"]
-            Critic["Subagent 3: critic (Hallucination Firewall)<br>• Verifies verbatim quote presence<br>• Requires >=90% quote backing"]
-            Pathfinder["Subagent 4: pathfinder<br>• Designs RPi5 benchmark experiment<br>• Generates APA-style citable text<br>• Proposes code PR (if EXTEND/THREATEN)"]
-            Publisher["Subagent 5: publisher<br>• Assembles daily morning briefings<br>• Truncates voice text (<=600 chars)"]
+        subgraph Subagents ["Sequential Analysis Pipeline"]
+            Reader["Subagent 1: paper-reader<br>• Fetches HTML / PDF<br>• Extracts claims & quotes"]
+            Matcher["Subagent 2: thesis-matcher<br>• NVIDIA Embeddings<br>• Cosine similarity vs thesis"]
+            Critic["Subagent 3: critic<br>• Hallucination firewall<br>• >=90% verbatim quote gate"]
+            Pathfinder["Subagent 4: pathfinder<br>• RPi5 benchmark experiment<br>• APA citable paragraph"]
+            Publisher["Subagent 5: publisher<br>• Daily Telegram briefing<br>• XiaoZhi voice summary"]
+        end
+
+        subgraph ArenaEngine ["Paper Arena (Agent Wars) Engine"]
+            SimGate{"Topical Gate<br>Sim >= 0.35"}
+            FightGraph["LangGraph Fight Graph (arena/graph.py)<br>• Parallel openings (Send)<br>• Cross-examination<br>• Common ground synthesis<br>• Symmetrical dual-run judging"]
+            StreamCb["Live Commentary Dispatcher<br>(Real-time Telegram round updates)"]
+            EloMgr["Elo Rating Engine<br>(K=32, Thesis grounded as #1)"]
         end
 
         NIM["NVIDIA Build Cloud (NIM)<br>• Llama-3.1-Nemotron-70B / 340B<br>• NVIDIA Embeddings"]
     end
 
-    %% Storage & Gate
-    subgraph Persistence ["4. State, Checkpoints & Human Gate"]
-        DB[("SQLite Database<br>checkpoints/thesisclaw.sqlite3<br>• processed_papers<br>• pending_approvals")]
+    %% State & Approvals
+    subgraph Persistence ["4. State, Persistence & Human Gate"]
+        DB[("SQLite Checkpoints<br>checkpoints/thesisclaw.sqlite3<br>• processed_papers<br>• arena_fights & Elo ratings<br>• pending_approvals")]
+        ArenaMem[("Arena Shared Memory<br>checkpoints/arena_memory.jsonl<br>(SHA-256 deduplicated fight traces)")]
         HumanGate{"Human Approval Gate<br>(Web UI: :8080/notes)"}
     end
 
-    %% Delivery Channels
+    %% Delivery
     subgraph Delivery ["5. Output & Delivery Channels"]
-        TGBot["Telegram Bot<br>(Rich Markdown Daily Briefing)"]
-        VoiceAudio["XiaoZhi Speaker<br>(Concise Voice Briefing)"]
-        JudgeSite["Static Public Dashboard<br>(site/public/index.html & stats.json)"]
+        TGBot["Telegram Bot<br>• Rich Markdown Briefings<br>• Live round status (editMessageText)<br>• Inline WebApp Buttons (Mobile HTTPS)"]
+        VoiceAudio["XiaoZhi Speaker<br>(Concise Voice Briefing <=600 chars)"]
+        WebDash["Dynamic Web Dashboards<br>• /papers/ (Educational gallery)<br>• /fight/{id} (Two-column debate)<br>• /leaderboard (Elo ranking)"]
         GitHubPR["GitHub Pull Request<br>(Code modifications)"]
     end
 
-    %% Connections
-    Arxiv -->|Paper URLs| Orch
-    UserTG <-->|Chat / Commands| OpenClaw
+    %% Connectors
+    Arxiv --> Orch
+    UserTG <-->|Chat / Slash Commands| OpenClaw
     XiaoZhi <-->|Audio / WiFi| VoiceBridge
     
     OpenClaw <-->|MCP JSON-RPC| MCPServer
     VoiceBridge <-->|Voice MCP HTTP| MCPServer
+    MCPServer <--> CFTunnel
+    CFTunnel <-->|Public HTTPS| TGBot
+
     MCPServer <--> Orch
+    MCPServer <--> FightGraph
 
-    Orch -->|1. URL / ID| Reader
-    Reader -->|Parsed PaperContent| Matcher
-    ThesisMemory -.->|Thesis Context| Matcher
-    Matcher -->|PaperVerdict| Critic
-    Critic -->|Pass: backed_ratio >= 0.90| Pathfinder
-    Pathfinder -->|Experiment & APA Citation| Orch
-    Orch -->|All Processed Papers| Publisher
-
-    %% NVIDIA LLM calls
+    %% Subagents pipeline
+    Orch --> Reader --> Matcher --> Critic --> Pathfinder --> Publisher
+    ThesisMemory -.-> Matcher
     Reader -.-> NIM
     Matcher -.-> NIM
     Critic -.-> NIM
     Pathfinder -.-> NIM
 
-    %% Checkpoints & Approvals
-    Orch <-->|Deduplication & Resume| DB
-    Pathfinder -->|If code change proposed| DB
-    DB <-->|Pending Actions| HumanGate
-    HumanGate -->|Approved by Human Click| GitHubPR
+    %% Arena flow
+    UserTG -->|/fight| SimGate
+    SimGate -->|Pass >= 0.35| FightGraph
+    SimGate -.->|Reject < 0.35| TGBot
+    FightGraph --> StreamCb -->|editMessageText| TGBot
+    FightGraph --> EloMgr --> DB
+    FightGraph --> ArenaMem
+    FightGraph -.-> NIM
 
-    %% Publishing
-    Publisher -->|Telegram format| TGBot
-    Publisher -->|Voice format <=600 chars| VoiceAudio
-    Publisher -->|Metrics & Counts| JudgeSite
+    %% Approvals & Outputs
+    Pathfinder --> DB
+    DB <--> HumanGate --> GitHubPR
+    Publisher --> TGBot
+    Publisher --> VoiceAudio
+    MCPServer --> WebDash
 ```
 
-### 🤖 What are Deep Agents?
+---
+
+## 🤖 Deep Agents Literature Pipeline
 
 In ThesisClaw, **Deep Agents** refers to the modular, stateful multi-agent system architecture running inside an isolated Python virtual environment managed by [`uv`](file:///Users/shyjojose/Hackathon/pyproject.toml).
 
@@ -137,11 +151,11 @@ Instead of relying on a single monolithic prompt that attempts to parse, reason,
 1. **Separation of Concerns:** Each discrete step in the literature pipeline is handled by an isolated subagent with its own dedicated system prompt in [`runtime/worker/prompts/`](file:///Users/shyjojose/Hackathon/runtime/worker/prompts/).
 2. **Deterministic Checkpointing:** Powered by [`ThesisOrchestrator`](file:///Users/shyjojose/Hackathon/src/thesisclaw/agent/orchestrator.py) and SQLite ([`checkpoints/thesisclaw.sqlite3`](file:///Users/shyjojose/Hackathon/checkpoints)), preserving evaluation state across system restarts, process kills, or network interruptions.
 3. **Token Budgeting:** A strict per-job token budget (`ORCHESTRATOR_TOKEN_BUDGET`, default 200,000 tokens) prevents runaway API bills; if approaching limits, the orchestrator halts and emits partial briefings.
-4. **Human-in-the-Loop Isolation:** Autonomous code generation or pull request creation is strictly paused and gated through the web interface ([`http://127.0.0.1:8080/notes`](file:///Users/shyjojose/Hackathon/src/thesisclaw/web/app.py)).
+4. **Human-in-the-Loop Isolation:** Autonomous code generation or pull request creation is strictly paused and gated through the web interface ([`http://localhost:8080/notes`](file:///Users/shyjojose/Hackathon/src/thesisclaw/web/app.py)).
 
 ### 🧩 The 5 Specialized Subagents
 
-The worker coordinates 5 distinct subagents defined in [`src/thesisclaw/agent/subagents.py`](file:///Users/shyjojose/Hackathon/src/thesisclaw/agent/subagents.py) and configured via [`runtime/worker/prompts/`](file:///Users/shyjojose/Hackathon/runtime/worker/prompts/):
+The worker coordinates 5 distinct subagents defined in [`src/thesisclaw/agent/subagents.py`](file:///Users/shyjojose/Hackathon/src/thesisclaw/agent/subagents.py):
 
 | # | Subagent | Primary Role | Inputs & Tools | Outputs | Guardrails & Failure Handling |
 |---|---|---|---|---|---|
@@ -153,58 +167,112 @@ The worker coordinates 5 distinct subagents defined in [`src/thesisclaw/agent/su
 
 ---
 
-### ⚔️ Paper Arena (AgentWars Mode)
+## ⚔️ Paper Arena (Agent Wars Mode)
 
-ThesisClaw introduces **Paper Arena** (`src/thesisclaw/arena/`), transforming dry research papers into adversarial debate agents that battle against the student thesis or each other in a structured, moderated LangGraph ring.
+**Paper Arena** (`src/thesisclaw/arena/`) transforms static research preprints into adversarial debate agents that battle against the student thesis anchor or head-to-head in a structured, moderated LangGraph ring.
 
 ```mermaid
 flowchart LR
-    Moderator["Moderator<br>(FightCard & Focal Qs)"] --> FanOut{"Send()<br>Fan-Out"}
-    FanOut --> FighterA["Fighter A (Openings)"]
-    FanOut --> FighterB["Fighter B (Openings)"]
+    Gate{"Topical Gate<br>(Sim >= 0.35)"} -->|Eligible| Moderator["Moderator Node<br>(FightCard & Focal Points)"]
+    Gate -.->|Ineligible| Reject["Rejection Notice<br>(Similarity < 0.35)"]
+    Moderator --> FanOut{"Send()<br>Parallel Fan-Out"}
+    FanOut --> FighterA["Fighter A Opening"]
+    FanOut --> FighterB["Fighter B Opening"]
     FighterA --> CrossExam["Round 2: Cross-Examination"]
     FighterB --> CrossExam
-    CrossExam --> Followups["Moderator Followups (≤2)"]
+    CrossExam --> Followups["Moderator Followups (<=2)"]
     Followups --> CommonGround["Round 3: Common Ground & Ideas"]
-    CommonGround --> Verifier["Code Quote Verifier<br>(Exact Match & Ligatures)"]
-    Verifier --> Judge["Judge (Nemotron Ultra)<br>Run 1 + Swapped Run 2"]
-    Judge --> Verdict["Merged Verdict & Elo Update<br>Public Fight Page"]
+    CommonGround --> Verifier["Code Quote Verifier<br>(Verbatim Match & Ligatures)"]
+    Verifier --> Judge["Dual-Run Judge (Nemotron)<br>Run 1 (A vs B) + Run 2 (B vs A)"]
+    Judge --> Verdict["Merged Verdict & Elo Rating<br>Dynamic Fight & Leaderboard WebPages"]
 ```
 
-#### Key Components:
-1. **LangGraph Fight Graph (`arena/graph.py`):** Fixed-round state machine with parallel openings (`Send`), cross-examination, moderator followups, common ground, deterministic quote verification, and dual-run judging with sides swapped for symmetry.
-2. **Deterministic Quote Verifier (`arena/verify.py`):** Normalizes unicode ligatures, soft hyphens, and whitespace. Only verbatim verified quotes ($\ge 90\%$ gate) count toward scoring; unverified quotes are struck through on the fight page.
-3. **Resumable Shared Memory (`arena/memory.py`):** Append-only JSONL files indexed by content SHA-256 hash. If interrupted or crashed, restarting a fight resumes from the last SQLite checkpoint without creating duplicate entries.
-4. **Elo Leaderboard (`arena/memory.py`, `site_builder/pages.py`):** Standard chess-style Elo rating ($K=32$) where existing champion papers defend their rankings whenever newcomers enter the ring.
-5. **Fight-Trace Evaluation Harness (`evals/fights/`):** Evaluates recorded fight traces offline across 4 strict gates:
-   - $\ge 90\%$ verified quotes
-   - $\ge 80\%$ swap agreement across dual judge runs
-   - Prompt injection canary pass (adversarial paper instructions cannot trigger tool calls)
-   - Resume without duplicate entries
-6. **New MCP Arena Tools:** `start_fight(a?, b?)`, `fight_status(fight_id?)`, `get_verdict(fight_id?)`, `ask_paper(doc_id, question)`, `similar_papers(doc_id, tau?)`, `leaderboard(limit?)`.
-7. **OpenClaw Telegram Commands:** `/fight`, `/fight <arxiv_id>`, `/fight <a> <b>`, `/ask <arxiv_id> <question>`, `/verdict`, `/leaderboard`.
+### 🥊 Core Arena Capabilities:
+1. **0.35 Topical Similarity Pre-flight Gate (`arena/select.py`):**
+   - Computes embedding cosine similarity before initiating a debate.
+   - Rejects disjoint topic match-ups early (e.g., comparing vision transformers against edge ASR audio quantization), saving LLM inference budget.
+2. **LangGraph Multi-Agent State Machine (`arena/graph.py`):**
+   - Coordinates parallel opening arguments via LangGraph `Send` branching.
+   - Progresses through structured cross-examination, targeted follow-ups, and common-ground synthesis.
+   - Resumable checkpoints powered by SQLite checkpointer.
+3. **Live Streaming Progress Updates (`telegram/bot.py`):**
+   - As the graph iterates through debate stages, progress callbacks dispatch in-flight commentary.
+   - The Telegram bot dynamically edits the message card in real-time (`editMessageText`) displaying animated round status updates (Opening 🥊 $\rightarrow$ Cross-Exam ⚔️ $\rightarrow$ Common Ground 🤝 $\rightarrow$ Verifying Quotes 🔍 $\rightarrow$ Judge ⚖️).
+4. **Deterministic Verbatim Quote Verifier (`arena/verify.py`):**
+   - Normalizes unicode ligatures, soft hyphens, and whitespace.
+   - Enforces a hard $\ge 90\%$ verified quotation threshold. Hallucinated or non-verbatim citations are struck through on generated web pages and penalized by the judge.
+5. **Symmetrical Dual-Run Judging:**
+   - Evaluates debates twice with swapped perspective ordering to cancel positional bias.
+   - Requires $\ge 80\%$ agreement between runs before declaring a definitive winner.
+6. **Elo Leaderboard Engine (`arena/memory.py`):**
+   - Standard chess-style Elo rating ($K=32$) with the user's **Thesis Draft permanently grounded at Rank #1**.
+   - Defending papers recalculate Elo ratings when matched against newly ingested literature.
+7. **Interactive HTML Dashboards (`site_builder/pages.py`):**
+   - Dynamic two-column debate transcript views at `/fight/{fight_id}`.
+   - Live ranked Elo standings at `/leaderboard`.
 
-### ⚡ Key Architectural Separation: Host OpenClaw vs. Worker vs. Voice Bridge
-1. **OpenClaw (System-Level on Laptop):**
-   - Installed directly on your host machine without a Python virtual environment.
-   - Operates as the Telegram conversational gateway, reading its persona and routing instructions from [`runtime/openclaw/workspace/`](file:///Users/shyjojose/Hackathon/runtime/openclaw/workspace/).
-   - Communicates with the worker strictly via Model Context Protocol (MCP) JSON-RPC over local HTTP (`http://127.0.0.1:8080/mcp`).
-2. **ThesisClaw Worker (Isolated `uv` Virtual Environment):**
-   - Runs in Python 3.12 managed by `uv`.
-   - Executes the 5 Deep Agents subagents, arXiv scraping, and SQLite checkpointing.
-   - Exposes the local MCP server and the Human-in-the-Loop Web Approval Dashboard.
-3. **Voice Bridge (Isolated FastMCP v1 Project):**
-   - Lives in `voice/` as an independent project pinned to `mcp>=1.28,<2`.
-   - Enforces a hard limit of $\le 600$ plain-text characters for the ESP32-S3 speaker/display, with zero leakage of private thesis notes.
+---
+
+## 🌐 Cloudflare Quick Tunnel & Mobile WebApps
+
+Telegram mobile links frequently fail when pointing to local network addresses (`http://192.168.x.x:8080`) over cellular data, and Telegram WebApp inline buttons strictly require secure `https://` URLs.
+
+ThesisClaw resolves this with an **automatic, zero-config Cloudflare Quick Tunnel** integration:
+
+```mermaid
+flowchart LR
+    subgraph LocalMachine ["Local Host Machine"]
+        Server["FastAPI + MCP Server (:8080)"] -->|"HTTP"| CFProc["cloudflared background subprocess<br>(src/thesisclaw/infra/tunnel.py)"]
+    end
+    CFProc -->|"Encrypted Tunnel"| Edge["Cloudflare Edge Network<br>(*.trycloudflare.com)"]
+    Edge -->|"Public HTTPS"| TelegramMobile["📱 Telegram Mobile App<br>• Inline WebApp Buttons<br>• Direct browser links"]
+```
+
+### Key Highlights:
+- **Lifespan Context Manager (`src/thesisclaw/mcp/main.py`):** On application startup, the server automatically checks if a tunnel is active and launches `cloudflared tunnel --url http://localhost:8080 --no-autoupdate` via a managed subprocess.
+- **Dynamic Hot-Patching:** Captures the newly assigned `https://*.trycloudflare.com` URL from standard output, hot-patches `settings.mcp_tunnel_domain` at runtime, and persists it to `.env`.
+- **Telegram Boot Notification:** The Telegram bot broadcasts a welcome card on startup with the live public URL and interactive inline buttons.
+- **Native WebApp Integration:** Buttons for the **Paper Gallery**, **Fight Dashboards**, and **Leaderboard** launch directly inside the native Telegram Mobile WebApp view without leaving the chat.
+- **Graceful Fallback:** If `cloudflared` is not installed, the server continues operating seamlessly on the local network IP.
+
+---
+
+## ⚡ Host OpenClaw vs. Worker vs. Voice Bridge Architecture
+
+ThesisClaw maintains strict process isolation across its operating tiers:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ 1. Host OpenClaw (System Node CLI)                                     │
+│    • System-level installation on host machine                         │
+│    • Telegram gateway, workspace persona, and command dispatcher       │
+│    • Communicates with worker over MCP JSON-RPC (:8080/mcp)            │
+├────────────────────────────────────────────────────────────────────────┤
+│ 2. ThesisClaw Worker Core (Isolated Python 3.12 / uv)                  │
+│    • Deep Agents 5-subagent sequential analysis pipeline               │
+│    • Paper Arena LangGraph state machine & Elo rating engine           │
+│    • Unified FastAPI web server & MCP endpoint provider                │
+│    • Cloudflare Quick Tunnel manager & SQLite checkpointer             │
+├────────────────────────────────────────────────────────────────────────┤
+│ 3. Voice Bridge (Standalone FastMCP v1 uv Project: voice/)             │
+│    • Independent environment pinned to mcp>=1.28,<2 (ADR-003)          │
+│    • XiaoZhi ESP32-S3 physical desk companion interface                │
+│    • Read-only MCP endpoint (/voice-mcp) with <=600 character ceiling  │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 🚀 Quick Start Guide
 
 ### Prerequisites
-- macOS or Linux laptop
+- macOS or Linux
 - Python 3.12 with [`uv`](https://github.com/astral-sh/uv) installed
-- Node 22+ (for system-level OpenClaw)
+- Homebrew (macOS) with `cloudflared`:
+  ```bash
+  brew install cloudflared
+  ```
+- Node 22+ (for system-level OpenClaw gateway)
 - An NVIDIA Build API key (`nvapi-...` from [build.nvidia.com](https://build.nvidia.com))
 - A Telegram bot token from `@BotFather`
 
@@ -215,11 +283,11 @@ flowchart LR
 git clone https://github.com/Shyjojose/hackathon.git
 cd hackathon
 
-# Create and populate environment secrets
+# Copy template configuration
 cp .env.example .env
 ```
 
-Open `.env` and fill in:
+Edit `.env` to supply credentials:
 ```dotenv
 NVIDIA_API_KEY="nvapi-your-key-here"
 NVIDIA_INFERENCE_API_KEY="nvapi-your-key-here"
@@ -231,7 +299,7 @@ TELEGRAM_ALLOWED_IDS="your_numeric_user_id"
 
 ### Step 2: Install Worker Dependencies
 ```bash
-# Sync all root Python dependencies (uv manages .venv automatically)
+# uv automatically creates and synchronizes the .venv virtual environment
 uv sync
 ```
 
@@ -239,21 +307,32 @@ uv sync
 
 ### Step 3: Launch the Unified Web & MCP Server
 ```bash
-uv run uvicorn thesisclaw.mcp.main:app --host 127.0.0.1 --port 8080 --reload
+uv run python -m thesisclaw.mcp.main
 ```
-- **Human Approval Gate:** Open `http://localhost:8080/notes` in your browser.
-- **Public Judge Dashboard:** Open `site/public/index.html`.
-- **Live Stats API:** `http://localhost:8080/stats`.
+*The server initializes FastAPI, mounts MCP routes, launches the Cloudflare Quick Tunnel, and prints your live public HTTPS URL.*
+
+- **Human Approval Gate:** `http://localhost:8080/notes`
+- **Interactive Leaderboard:** `http://localhost:8080/leaderboard`
+- **Paper Gallery:** `http://localhost:8080/papers/`
+- **Public Stats:** `http://localhost:8080/stats`
 
 ---
 
-### Step 4: Run OpenClaw on Host Laptop (No Virtual Environment)
-Because OpenClaw is installed globally on your machine, run it directly from your terminal outside any Python virtual environment:
+### Step 4: Start the Telegram Bot Interface
+
+Run ThesisClaw's async Telegram bot listener:
 ```bash
-# Point OpenClaw to the project workspace configuration
-openclaw start --workspace runtime/openclaw/workspace
+uv run python -m thesisclaw.telegram.bot
 ```
-*(Alternatively, run ThesisClaw's built-in async Telegram bot runner via `uv run python -m thesisclaw.telegram.bot`).*
+
+#### Available Telegram Commands:
+- `/start` — Display system capabilities, health indicators, and gallery shortcuts.
+- `/briefing` — Generate an on-demand morning briefing across evaluated literature.
+- `/fight` — Stage an arena debate between the top two literature contenders.
+- `/fight <arxiv_id>` — Challenge the thesis anchor with a specific paper.
+- `/fight <arxiv_a> <arxiv_b>` — Stage a head-to-head match between two preprints.
+- `/leaderboard` — View current Elo ratings, match statistics, and win rates.
+- `/ask <arxiv_id> <question>` — Query a specific paper with verbatim quote verification.
 
 ---
 
@@ -268,10 +347,10 @@ uv run python src/mcp_pipe.py
 
 ## 🧪 Testing & Verification
 
-ThesisClaw includes a comprehensive test suite covering all data models, arXiv fetchers with mocked HTTP, subagent reasoning, MCP authentication, and the web approval flow:
+ThesisClaw features an automated test harness covering subagents, arXiv fetchers with mocked network requests, MCP protocol tools, LangGraph arena states, similarity gating, and tunnel lifecycles:
 
 ```bash
-# Run all unit tests
+# Run all automated tests (offline)
 uv run pytest -m "not live" -v
 
 # Run the strict Ruff linter
@@ -280,7 +359,7 @@ uv run ruff check src/ tests/ evals/
 
 ### Verified Test Results
 ```
-============================== 37 passed in 7.14s ==============================
+====================== 147 passed, 4 skipped in 11.36s ======================
 All checks passed!
 ```
 
@@ -288,41 +367,51 @@ All checks passed!
 
 ## 🔒 Security & Privacy by Design
 
-- **Strict Approval Gates:** Any action that mutates the codebase (opening GitHub PRs) or writes files pauses with `interrupt()` and requires explicit human review on the web dashboard (`http://localhost:8080/notes`). Approvals can never be triggered via Telegram or MCP.
-- **Prompt Injection Containment:** OpenClaw runs in a sandboxed host gateway. Untrusted papers from arXiv are parsed by `fetch.py` into structured schemas before reaching the reasoning subagents.
-- **No Private Data Leaks:** Voice bridge outputs are strictly summarized and capped at 600 characters, preventing raw thesis text from streaming to third-party audio clouds.
-- **Secret Scanning:** Built-in hooks (`scripts/hooks/guard.py`) block dangerous commands (`sudo shutdown`, `poweroff`) and prevent accidental commits of API keys.
+- **Strict Approval Gates (ADR-005):** Side-effecting actions (such as generating code branches or opening GitHub PRs) pause execution and require explicit approval on the web interface (`http://localhost:8080/notes`). Approvals can never be triggered via Telegram or MCP.
+- **Prompt Injection Canary Isolation:** Untrusted external papers ingested from arXiv are parsed into structured schemas before reaching reasoning subagents. Adversarial prompt instructions inside paper texts cannot trigger external MCP tool actions.
+- **Voice Privacy Ceiling:** Voice bridge responses are strictly summarized and limited to $\le 600$ characters, protecting private research notes from leaking across audio networks.
+- **Guardrail Hooks (`scripts/hooks/guard.py`):** Automatically blocks destructive commands (`sudo shutdown`, `poweroff`, `git push --force`) and screens commits for accidental secret leaks.
 
 ---
 
 ## 📂 Project Structure
 
 ```
-├── .context_memory/          # Live state tracking and compacted project memory
-│   ├── compact_summary.md    # Distilled knowledge base
-│   └── state.md              # Milestone completion tracker
-├── research/                 # Live thesis memory (gitignored, persistent)
-│   └── agent.md              # Raspberry Pi 5 ASR thesis profile
+├── infra/                          # Infrastructure automation & tunnel guides
+│   └── README.md                   # Cloudflare Quick Tunnel setup & named tunnel instructions
+├── research/                       # Live thesis memory (gitignored, persistent)
+│   └── agent.md                    # Target thesis profile & RPi5 ASR baseline
 ├── runtime/
-│   ├── openclaw/workspace/   # Host OpenClaw configuration (AGENTS.md, SOUL.md, USER.md)
-│   └── worker/prompts/       # Deep Agents subagent prompts
+│   ├── openclaw/workspace/         # Host OpenClaw configuration (AGENTS.md, SOUL.md, USER.md)
+│   └── worker/prompts/             # Deep Agents subagent system prompts
 ├── site/
-│   └── public/
-│       ├── index.html        # Static public judge dashboard (zero external JS)
-│       └── stats.json        # Real-time evaluation metrics
+│   ├── playbook/                   # Evaluation rubric & project notes
+│   └── public/                     # Static dashboard & generated paper pages
 ├── src/thesisclaw/
-│   ├── config/settings.py    # Pydantic BaseSettings loading from .env
-│   ├── models/               # Strict Pydantic models (paper, job)
-│   ├── tools/                # arXiv fetcher & NVIDIA embeddings
-│   ├── agent/                # Orchestrator & 5 specialized subagents
-│   ├── jobs/                 # scan.py, backfill.py, sleep.py
-│   ├── telegram/             # Interactive Telegram bot channel
-│   ├── web/app.py            # FastAPI human approval dashboard (:8080/notes)
-│   └── mcp/                  # Streamable HTTP MCP server (v2)
-├── tests/unit/               # 37 comprehensive unit tests
-└── voice/                    # Standalone ESP32-S3 FastMCP v1 project
-    ├── pyproject.toml        # Isolated mcp>=1.28,<2
-    └── src/mcp_pipe.py       # XiaoZhi voice bridge
+│   ├── agent/                      # Orchestrator & 5 specialized subagents
+│   ├── arena/                      # Paper Arena: LangGraph fight graph, quote verifier, Elo engine
+│   │   ├── graph.py                # State machine & debate flow
+│   │   ├── memory.py               # JSONL shared memory & Elo calculator
+│   │   ├── models.py               # Pydantic models (FightCard, FightState, RoundState)
+│   │   ├── select.py               # 0.35 similarity gate & contender selection
+│   │   └── verify.py               # Deterministic verbatim quote verifier
+│   ├── config/settings.py          # Central Pydantic BaseSettings loading from .env
+│   ├── infra/                      # Infrastructure & tunnel launcher
+│   │   └── tunnel.py               # Cloudflare Quick Tunnel managed subprocess
+│   ├── jobs/                       # scan.py, backfill.py, sleep.py
+│   ├── mcp/                        # Streamable HTTP MCP server (v2) & main entry point
+│   ├── models/                     # Data schemas (PaperContent, PaperVerdict, BriefingResult)
+│   ├── site_builder/               # HTML page generators (fight dashboards, leaderboard)
+│   ├── telegram/bot.py             # Telegram bot with live streaming progress & WebApps
+│   ├── tools/                      # arXiv text fetcher & NVIDIA embeddings client
+│   └── web/app.py                  # FastAPI server with paper gallery, notes & arena routes
+├── tests/
+│   ├── arena/                      # Paper Arena tests (graph, memory, verifier, select)
+│   └── unit/                       # Unit tests (agent, config, telegram, tunnel, web, tools)
+├── evals/fights/                   # Fight-trace evaluation harness & golden fixtures
+└── voice/                          # Standalone ESP32-S3 FastMCP v1 project
+    ├── pyproject.toml              # Pinned mcp>=1.28,<2
+    └── src/mcp_pipe.py             # XiaoZhi voice bridge
 ```
 
 ---

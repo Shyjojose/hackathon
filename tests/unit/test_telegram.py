@@ -497,3 +497,182 @@ async def test_telegram_research_scout(
     assert res_chat == "Research handled."
     assert any("Discovered 3 Brand New Research Papers" in p.get("text", "") for p in sent_payloads)
 
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_telegram_leaderboard_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    from thesisclaw.arena.models import EloEntry
+    monkeypatch.setattr("thesisclaw.config.settings.settings.telegram_allowed_ids", "111")
+    monkeypatch.setattr(
+        "thesisclaw.arena.memory.get_leaderboard",
+        lambda limit=10: [
+            EloEntry(doc_id="ground", rating=1264.0, wins=3, losses=0, draws=1, fights=4),
+            EloEntry(doc_id="2608.12345", rating=1215.0, wins=2, losses=1, draws=0, fights=3),
+        ],
+    )
+
+    token = "mock-bot-token"
+    sent_payloads: list[dict[str, Any]] = []
+
+    def mock_send(request: httpx.Request) -> httpx.Response:
+        data = json.loads(request.content.decode("utf-8"))
+        sent_payloads.append(data)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 100}})
+
+    respx.post(f"https://api.telegram.org/bot{token}/sendMessage").mock(side_effect=mock_send)
+
+    bot = TelegramBotClient(token=token)
+    bot.seen_users.add(111)
+
+    # 1. Test /leaderboard command
+    res = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "/leaderboard"}
+    })
+    assert res == "Leaderboard handled."
+    assert len(sent_payloads) == 1
+    assert "Paper Arena Elo Leaderboard" in sent_payloads[0]["text"]
+    assert "Ground (Thesis Anchor)" in sent_payloads[0]["text"]
+    assert "1264" in sent_payloads[0]["text"]
+
+    # 2. Test button tap: 🏆 Elo Leaderboard
+    sent_payloads.clear()
+    res_btn = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "🏆 Elo Leaderboard"}
+    })
+    assert res_btn == "Leaderboard handled."
+    assert len(sent_payloads) == 1
+    assert "Paper Arena Elo Leaderboard" in sent_payloads[0]["text"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_telegram_fight_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from thesisclaw.arena.models import MergedVerdict
+
+    monkeypatch.setattr("thesisclaw.config.settings.settings.telegram_allowed_ids", "111")
+    # Mock run_fight to return a verdict
+    mv = MergedVerdict(
+        fight_id="fight-mock",
+        winner="fighter_a",
+        swap_agreement=0.9,
+        final_scores={"fighter_a": 4.5, "fighter_b": 3.5},
+        ranked_ideas=["idea_1"],
+        all_entries_verified_ratio=1.0,
+        struck_count=0,
+        upheld_count=3,
+    )
+    monkeypatch.setattr("thesisclaw.arena.graph.run_fight", AsyncMock(return_value=mv))
+
+    token = "mock-bot-token"
+    sent_payloads: list[dict[str, Any]] = []
+
+    def mock_send(request: httpx.Request) -> httpx.Response:
+        data = json.loads(request.content.decode("utf-8"))
+        sent_payloads.append(data)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 101}})
+
+    respx.post(f"https://api.telegram.org/bot{token}/sendMessage").mock(side_effect=mock_send)
+
+    bot = TelegramBotClient(token=token)
+    bot.seen_users.add(111)
+
+    # Test /fight with specific paper
+    res = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "/fight 2608.12345"}
+    })
+    assert "queued" in res
+    assert len(sent_payloads) >= 1
+    ack = sent_payloads[0]["text"]
+    assert "Paper Arena Fight Queued!" in ack
+    assert "Ground Thesis 🆚 arXiv:2608.12345" in ack
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_telegram_verdict_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    from thesisclaw.arena.models import Fighter, FighterKind, FightRecord, FightState, MergedVerdict
+
+    monkeypatch.setattr("thesisclaw.config.settings.settings.telegram_allowed_ids", "111")
+    record = FightRecord(
+        fight_id="fight-v-test",
+        fighter_a=Fighter(kind=FighterKind.GROUND, doc_id="ground"),
+        fighter_b=Fighter(kind=FighterKind.PAPER, doc_id="2608.12345"),
+        state=FightState.DONE,
+        merged_verdict=MergedVerdict(
+            fight_id="fight-v-test",
+            winner="fighter_a",
+            swap_agreement=0.95,
+            final_scores={"fighter_a": 4.6, "fighter_b": 3.7},
+            ranked_ideas=["idea_alpha"],
+            all_entries_verified_ratio=0.96,
+            struck_count=0,
+            upheld_count=4,
+        ),
+    )
+    monkeypatch.setattr("thesisclaw.arena.memory.get_fight", lambda fid: record if fid == "fight-v-test" else None)
+    monkeypatch.setattr("thesisclaw.arena.memory.list_fights", lambda limit=1: [record])
+
+    token = "mock-bot-token"
+    sent_payloads: list[dict[str, Any]] = []
+
+    def mock_send(request: httpx.Request) -> httpx.Response:
+        data = json.loads(request.content.decode("utf-8"))
+        sent_payloads.append(data)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 102}})
+
+    respx.post(f"https://api.telegram.org/bot{token}/sendMessage").mock(side_effect=mock_send)
+
+    bot = TelegramBotClient(token=token)
+    bot.seen_users.add(111)
+
+    res = await bot.handle_update({
+        "message": {"chat": {"id": 999}, "from": {"id": 111}, "text": "/verdict"}
+    })
+    assert res == "Verdict handled."
+    assert len(sent_payloads) == 1
+    assert "fight-v-test" in sent_payloads[0]["text"]
+    assert "FIGHTER_A" in sent_payloads[0]["text"] or "Ground Thesis" in sent_payloads[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_telegram_chat_arena_intents(monkeypatch: pytest.MonkeyPatch) -> None:
+    from thesisclaw.arena.models import EloEntry
+    monkeypatch.setattr(
+        "thesisclaw.arena.memory.get_leaderboard",
+        lambda limit=10: [EloEntry(doc_id="ground", rating=1264.0, wins=3, fights=3)],
+    )
+    bot = TelegramBotClient(token="mock-token")
+    # Test leaderboard intent
+    resp_lb = await bot.chat_with_agent("who is winning the paper fights?", chat_id=123)
+    assert "Paper Arena Elo Leaderboard" in resp_lb
+
+    # Test fight intent
+    resp_fight = await bot.chat_with_agent("start fight with a paper", chat_id=123)
+    assert "Paper Arena Debates" in resp_fight
+    assert "/fight" in resp_fight
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_telegram_registered_bot_commands() -> None:
+    token = "mock-bot-token"
+    payloads: list[dict[str, Any]] = []
+
+    def mock_set_commands(request: httpx.Request) -> httpx.Response:
+        data = json.loads(request.content.decode("utf-8"))
+        payloads.append(data)
+        return httpx.Response(200, json={"ok": True})
+
+    respx.post(f"https://api.telegram.org/bot{token}/setMyCommands").mock(side_effect=mock_set_commands)
+
+    bot = TelegramBotClient(token=token)
+    ok = await bot.register_bot_commands()
+    assert ok is True
+    assert len(payloads) == 1
+    cmd_names = [c["command"] for c in payloads[0]["commands"]]
+    assert "fight" in cmd_names
+    assert "leaderboard" in cmd_names
+
+

@@ -129,14 +129,18 @@ class TelegramBotClient:
             "• `/briefing` — Generate or fetch the latest literature scan briefing\n"
             "• `/status` — View agent health, active models, and pipeline metrics\n"
             "• `/thesis` — View active thesis claims, hypotheses & benchmark targets\n"
+            "• `/fight [arxiv_id]` — Run an adversarial Paper Arena debate (Ground vs paper or paper vs paper)\n"
+            "• `/leaderboard` — View current Elo ratings & adversarial debate standings\n"
             "• `/notes` — Access the human approval gate for code & experiment proposals\n"
             "• `/help` — Display this communication guide\n\n"
             "💬 **Ways to Interact:**\n"
             "• **Research Scout:** Tap `🔍 Research 3 New Papers` or run `/research` to discover and evaluate novel arXiv literature on demand.\n"
+            "• **Paper Arena:** Tap `⚔️ Paper Fight` or run `/fight [arxiv_id]` to trigger a 4-round moderated debate against the thesis.\n"
+            "• **Leaderboard:** Tap `🏆 Elo Leaderboard` to inspect live chess-style paper rankings.\n"
             "• **arXiv Links:** Paste any arXiv link (e.g. `https://arxiv.org/abs/2410.05229`) "
             "to run an instant deep analysis, generate a 4-tab dashboard, and receive the offline `.html` document.\n"
             "• **AI Research Chat:** Ask questions like *'How many papers have been reviewed?'*, "
-            "*'Which papers were discarded and why?'*, or *'Find 3 new papers'*.\n"
+            "*'Who is winning the paper fights?'*, or *'Find 3 new papers'*.\n"
             "• **Voice Companion:** Speak with the XiaoZhi ESP32-S3 voice bridge for hands-free queries.\n"
             "• **Approval Gate:** Review and approve proposed experiments at `/notes`.\n\n"
             f"📱 **Mobile Browser on Wi-Fi:** Open `http://{lan_ip}:{settings.mcp_port}/papers/`\n\n"
@@ -145,6 +149,7 @@ class TelegramBotClient:
         reply_markup = {
             "keyboard": [
                 [{"text": "🔍 Research 3 New Papers"}, {"text": "📚 Review History"}],
+                [{"text": "⚔️ Paper Fight"}, {"text": "🏆 Elo Leaderboard"}],
                 [{"text": "🟢 Similar Papers"}, {"text": "🚫 Discarded Papers"}],
                 [{"text": "🔗 Paper Links"}, {"text": "📰 Briefing"}],
                 [{"text": "🎯 View Thesis"}, {"text": "⚙️ Agent Status"}],
@@ -368,6 +373,231 @@ class TelegramBotClient:
         reply_markup = {"inline_keyboard": inline_buttons} if inline_buttons else None
         return "\n".join(lines), reply_markup
 
+    def format_leaderboard_message(self, limit: int = 10) -> tuple[str, dict[str, Any] | None]:
+        """Format the Paper Arena Elo leaderboard standings for Telegram chat."""
+        from thesisclaw.arena.memory import get_leaderboard
+
+        entries = get_leaderboard(limit=limit)
+        base_url = self.get_base_page_url()
+        lb_url = f"{base_url}/leaderboard"
+
+        if not entries:
+            msg = (
+                "🏆 **Paper Arena Elo Leaderboard**\n\n"
+                "ℹ️ _No arena fights recorded yet._\n\n"
+                "Run `/fight` or tap `⚔️ Paper Fight` to start an adversarial debate against the thesis!"
+            )
+            return msg, None
+
+        lines = [
+            "🏆 **Paper Arena Elo Leaderboard**",
+            "_Adversarial Research Debates • Elo Defended Against Newcomers_\n",
+        ]
+        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+        for i, e in enumerate(entries):
+            rank_str = medals.get(i, f"#{i+1}")
+            if e.doc_id == "ground":
+                name = "🟢 **Ground (Thesis Anchor)**"
+            else:
+                name = f"📄 **arXiv:{e.doc_id}**"
+            lines.append(
+                f"{rank_str} {name} — `{round(e.rating)}` Elo\n"
+                f"   └ Record: `{e.wins}W / {e.losses}L / {e.draws}D` ({e.fights} fights)"
+            )
+
+        lines.extend([
+            "",
+            f"🏛️ **Full Interactive Standings:**\n👉 {lb_url}",
+        ])
+
+        reply_markup = None
+        if lb_url.startswith("https://"):
+            reply_markup = {
+                "inline_keyboard": [
+                    [
+                        {"text": "🏆 Open Leaderboard (In-App)", "web_app": {"url": lb_url}},
+                        {"text": "🌐 Browser", "url": lb_url},
+                    ]
+                ]
+            }
+        else:
+            reply_markup = {
+                "inline_keyboard": [[{"text": "🏆 Open Leaderboard", "url": lb_url}]]
+            }
+
+        return "\n".join(lines), reply_markup
+
+    async def handle_fight_request(self, chat_id: int, text: str) -> str:
+        """
+        Handle /fight command:
+          - /fight                     -> Ground vs top similar paper from DB
+          - /fight <arxiv_id>          -> Ground vs specific paper
+          - /fight <id_a> <id_b>       -> Paper vs Paper
+        """
+        import uuid
+
+        from thesisclaw.arena.docs import load_fighter_doc
+        from thesisclaw.arena.memory import upsert_fight
+        from thesisclaw.arena.models import Fighter, FighterKind, FightRecord, FightState
+        from thesisclaw.arena.select import get_candidates_from_db, top_opponent
+
+        parts = text.strip().split()
+        args = parts[1:] if text.startswith("/fight") else []
+
+        if len(args) == 0:
+            # Auto: Ground vs most similar candidate in DB
+            ground_doc = await load_fighter_doc("ground", "ground")
+            candidates = get_candidates_from_db(settings.checkpoints_dir / "thesisclaw.sqlite3")
+            best = top_opponent(ground_doc["text"], candidates)
+            if best is None:
+                await self.send_message(
+                    chat_id,
+                    "⚠️ **No Opponents Available:** No processed papers found in database for auto-matchmaking.\n"
+                    "Run `/research` first or specify an arXiv ID: `/fight <arxiv_id>`.",
+                )
+                return "No auto opponent."
+            fighter_a = Fighter(kind=FighterKind.GROUND, doc_id="ground")
+            fighter_b = Fighter(kind=FighterKind.PAPER, doc_id=best.doc_id)
+        elif len(args) == 1:
+            aid = args[0].replace("https://arxiv.org/abs/", "").replace("arXiv:", "").strip()
+            fighter_a = Fighter(kind=FighterKind.GROUND, doc_id="ground")
+            fighter_b = Fighter(kind=FighterKind.PAPER, doc_id=aid)
+        else:
+            aid_a = args[0].replace("https://arxiv.org/abs/", "").replace("arXiv:", "").strip()
+            aid_b = args[1].replace("https://arxiv.org/abs/", "").replace("arXiv:", "").strip()
+            fighter_a = Fighter(kind=FighterKind.PAPER, doc_id=aid_a)
+            fighter_b = Fighter(kind=FighterKind.PAPER, doc_id=aid_b)
+
+        fight_id = f"fight-{uuid.uuid4().hex[:8]}"
+        record = FightRecord(fight_id=fight_id, fighter_a=fighter_a, fighter_b=fighter_b, state=FightState.QUEUED)
+        upsert_fight(record)
+
+        label_a = "Ground Thesis" if fighter_a.doc_id == "ground" else f"arXiv:{fighter_a.doc_id}"
+        label_b = "Ground Thesis" if fighter_b.doc_id == "ground" else f"arXiv:{fighter_b.doc_id}"
+
+        ack_msg = (
+            f"⚔️ **Paper Arena Fight Queued!**\n\n"
+            f"• **Matchup:** {label_a} 🆚 {label_b}\n"
+            f"• **Fight ID:** `{fight_id}`\n\n"
+            "⏳ _The LangGraph adversarial debate engine is running R1 Openings, R2 Cross-Exam, and dual-run judging... I will send the verdict when complete!_"
+        )
+        await self.send_message(chat_id, ack_msg)
+
+        # Launch fight in background task and notify upon completion
+        asyncio.create_task(self._execute_and_notify_fight(chat_id, fighter_a, fighter_b, fight_id))
+        return f"Fight {fight_id} queued."
+
+    async def _execute_and_notify_fight(
+        self,
+        chat_id: int,
+        fighter_a: Any,
+        fighter_b: Any,
+        fight_id: str,
+    ) -> None:
+        """Run the fight graph in background and notify Telegram chat upon completion."""
+        from thesisclaw.arena.graph import run_fight
+        from thesisclaw.arena.memory import get_fight
+
+        base_url = self.get_base_page_url()
+        fight_url = f"{base_url}/fight/{fight_id}"
+
+        try:
+            verdict = await run_fight(fighter_a, fighter_b, fight_id=fight_id)
+            record = get_fight(fight_id)
+            if not verdict or not record:
+                await self.send_message(
+                    chat_id,
+                    f"❌ **Fight Failed (`{fight_id}`):** Unable to complete debate. Please check logs.",
+                )
+                return
+
+            label_a = "Ground Thesis" if fighter_a.doc_id == "ground" else f"arXiv:{fighter_a.doc_id}"
+            label_b = "Ground Thesis" if fighter_b.doc_id == "ground" else f"arXiv:{fighter_b.doc_id}"
+
+            winner_name = "Draw 🤝"
+            if verdict.winner == "fighter_a":
+                winner_name = f"{label_a} 🏆"
+            elif verdict.winner == "fighter_b":
+                winner_name = f"{label_b} 🏆"
+
+            score_a = verdict.final_scores.get("fighter_a", 0.0)
+            score_b = verdict.final_scores.get("fighter_b", 0.0)
+            verified_pct = round(verdict.all_entries_verified_ratio * 100)
+            swap_pct = round(verdict.swap_agreement * 100)
+
+            ideas_preview = ""
+            if verdict.ranked_ideas:
+                ideas_preview = f"\n💡 **Novel Ideas Discovered:** `{len(verdict.ranked_ideas)}` generated\n"
+
+            msg = (
+                f"⚔️ **Fight Verdict: {label_a} vs {label_b}**\n\n"
+                f"🏆 **Winner:** {winner_name}\n"
+                f"📊 **Scores:** {label_a} `{score_a:.1f}/5` • {label_b} `{score_b:.1f}/5`\n"
+                f"✅ **Verified Quotes:** `{verified_pct}%` verbatim backed\n"
+                f"🔄 **Swap Symmetry Agreement:** `{swap_pct}%` consistent\n"
+                f"{ideas_preview}\n"
+                f"🌐 **Interactive 2-Column Fight Dashboard:**\n👉 {fight_url}"
+            )
+
+            reply_markup = None
+            if fight_url.startswith("https://"):
+                reply_markup = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "⚔️ Open Fight Dashboard (In-App)", "web_app": {"url": fight_url}},
+                            {"text": "🌐 Browser", "url": fight_url},
+                        ]
+                    ]
+                }
+            else:
+                reply_markup = {
+                    "inline_keyboard": [[{"text": "⚔️ Open Fight Dashboard", "url": fight_url}]]
+                }
+
+            await self.send_message(chat_id, msg, reply_markup=reply_markup)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Error executing fight %s: %s", fight_id, exc)
+            await self.send_message(chat_id, f"❌ **Error running fight `{fight_id}`:** {exc}")
+
+    async def handle_verdict_request(self, chat_id: int, text: str) -> str:
+        """Handle /verdict [fight_id] to view latest or specific fight result."""
+        from thesisclaw.arena.memory import get_fight, list_fights
+
+        parts = text.strip().split()
+        fight_id = parts[1] if len(parts) > 1 else None
+
+        if fight_id:
+            record = get_fight(fight_id)
+        else:
+            fights = list_fights(limit=1)
+            record = fights[0] if fights else None
+
+        if not record or not record.merged_verdict:
+            await self.send_message(
+                chat_id,
+                "ℹ️ **No Verdict Available:** No completed fight found. Run `/fight` to start one!",
+            )
+            return "No verdict."
+
+        mv = record.merged_verdict
+        base_url = self.get_base_page_url()
+        fight_url = f"{base_url}/fight/{record.fight_id}"
+
+        label_a = "Ground Thesis" if record.fighter_a.doc_id == "ground" else f"arXiv:{record.fighter_a.doc_id}"
+        label_b = "Ground Thesis" if record.fighter_b.doc_id == "ground" else f"arXiv:{record.fighter_b.doc_id}"
+
+        msg = (
+            f"⚖️ **Latest Verdict: `{record.fight_id}`**\n\n"
+            f"• **Matchup:** {label_a} vs {label_b}\n"
+            f"• **Winner:** {mv.winner.upper()}\n"
+            f"• **Scores:** {label_a} `{mv.final_scores.get('fighter_a', 0.0):.1f}/5` • {label_b} `{mv.final_scores.get('fighter_b', 0.0):.1f}/5`\n"
+            f"• **Verified Quotes:** `{round(mv.all_entries_verified_ratio * 100)}%`\n"
+            f"• **Swap Agreement:** `{round(mv.swap_agreement * 100)}%`\n\n"
+            f"🔗 {fight_url}"
+        )
+        await self.send_message(chat_id, msg)
+        return "Verdict handled."
+
     async def handle_research_request(self, chat_id: int, topic: str | None = None) -> str:
         """Execute autonomous Research Scout Subagent: discover 3 brand new papers and reply with similarity scores and links."""
         topic_desc = f" on '{topic}'" if topic else " matching thesis focus"
@@ -496,6 +726,20 @@ class TelegramBotClient:
         if any(w in lower for w in ["what is your thesis", "thesis topic", "thesis claim"]):
             return self.format_thesis_message()
 
+        if any(w in lower for w in ["leaderboard", "ranking", "standings", "who is winning", "top papers", "elo"]):
+            msg, _ = self.format_leaderboard_message()
+            return msg
+
+        if any(w in lower for w in ["start fight", "paper fight", "fight paper", "challenge paper", "paper arena"]):
+            return (
+                "⚔️ **Paper Arena Debates:**\n"
+                "To trigger an adversarial debate between research papers and your thesis, run:\n"
+                "• `/fight` — Auto-select highest similarity candidate from DB vs Ground\n"
+                "• `/fight <arxiv_id>` — Match Ground against a specific paper\n"
+                "• `/fight <id_a> <id_b>` — Match two papers against each other\n\n"
+                "Or tap `⚔️ Paper Fight` on your quick keyboard!"
+            )
+
         # 2. Grounded LLM Chat (ChatNVIDIA)
         llm = get_llm_client()
         if llm:
@@ -610,6 +854,8 @@ class TelegramBotClient:
             {"command": "briefing", "description": "Latest literature scan briefing"},
             {"command": "status", "description": "Agent status & system health"},
             {"command": "thesis", "description": "Active thesis claims & benchmark targets"},
+            {"command": "fight", "description": "Trigger an adversarial Paper Arena fight"},
+            {"command": "leaderboard", "description": "Current Elo rankings & fight standings"},
             {"command": "notes", "description": "Human approval gate for experiments"},
             {"command": "help", "description": "Communication directory and how to interact"},
         ]
@@ -761,6 +1007,20 @@ class TelegramBotClient:
             briefing = await self.orchestrator.run_batch_evaluation([])
             await self.send_message(chat_id, briefing.telegram_briefing)
             return "Briefing handled."
+
+        # Command /leaderboard or /ranking or button tap
+        if text.startswith(("/leaderboard", "/ranking", "/standings")) or text == "🏆 Elo Leaderboard":
+            msg, reply_markup = self.format_leaderboard_message()
+            await self.send_message(chat_id, msg, reply_markup=reply_markup)
+            return "Leaderboard handled."
+
+        # Command /fight or button tap
+        if text.startswith("/fight") or text == "⚔️ Paper Fight":
+            return await self.handle_fight_request(chat_id, text)
+
+        # Command /verdict
+        if text.startswith("/verdict"):
+            return await self.handle_verdict_request(chat_id, text)
 
         # Check if text contains an arXiv link
         if "arxiv.org" in text or "arxiv:" in text.lower():

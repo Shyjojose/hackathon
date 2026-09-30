@@ -151,26 +151,26 @@ class TelegramBotClient:
         base_url = tunnel_url.rstrip("/")
         msg = (
             f"🌐 **ThesisClaw is Online!**\n\n"
-            f"• **Public URL:** `{base_url}`\n"
-            f"• **Fight Dashboards:** `{base_url}/fight/<fight_id>`\n"
-            f"• **Leaderboard:** `{base_url}/leaderboard`\n"
-            f"• **Paper Gallery:** `{base_url}/papers/`\n"
-            f"• **Approval Gate:** `{base_url}/notes`\n\n"
-            f"_All Telegram links now use this HTTPS URL — WebApp inline buttons are enabled on mobile! 📱_"
+            f"• 📚 **[Open Paper Gallery]({base_url}/papers/)**\n  👉 {base_url}/papers/\n\n"
+            f"• 🏆 **[Open Elo Leaderboard]({base_url}/leaderboard)**\n  👉 {base_url}/leaderboard\n\n"
+            f"• 🔬 **[Human Approval Gate]({base_url}/notes)**\n  👉 {base_url}/notes\n\n"
+            f"_All links are live HTTPS — tap any blue link or button below to open on mobile! 📱_"
         )
         reply_markup = {
             "inline_keyboard": [
                 [
-                    {"text": "📚 Paper Gallery", "web_app": {"url": f"{base_url}/papers/"}},
-                    {"text": "🏆 Leaderboard", "web_app": {"url": f"{base_url}/leaderboard"}},
-                ]
+                    {"text": "📚 Paper Gallery", "url": f"{base_url}/papers/"},
+                    {"text": "🏆 Leaderboard", "url": f"{base_url}/leaderboard"},
+                ],
+                [
+                    {"text": "🔬 Approval Gate", "url": f"{base_url}/notes"},
+                ],
             ]
         }
         await self.send_message(chat_id, msg, reply_markup=reply_markup)
 
     def get_welcome_card(self) -> tuple[str, dict[str, Any]]:
         """Return the first-message directory with all communication tags and quick reply markup."""
-        lan_ip = get_lan_ip()
         msg = (
             "👋 **Welcome to ThesisClaw!**\n\n"
             "I am your autonomous research partner monitoring academic literature for your "
@@ -199,7 +199,7 @@ class TelegramBotClient:
             "*'Who is winning the paper fights?'*, or *'Find 3 new papers'*.\n"
             "• **Voice Companion:** Speak with the XiaoZhi ESP32-S3 voice bridge for hands-free queries.\n"
             "• **Approval Gate:** Review and approve proposed experiments at `/notes`.\n\n"
-            f"📱 **Mobile Browser on Wi-Fi:** Open `http://{lan_ip}:{settings.mcp_port}/papers/`\n\n"
+            f"📱 **Mobile Dashboard:** [Open Paper Gallery]({self.get_base_page_url()}/papers/)\n👉 {self.get_base_page_url()}/papers/\n\n"
             "Tap any quick button below or type a message to start!"
         )
         reply_markup = {
@@ -370,7 +370,6 @@ class TelegramBotClient:
         verdicts = summary["verdicts"]
         recent = summary["recent"]
         base_url = self.get_base_page_url()
-        lan_ip = get_lan_ip()
 
         lines = [
             "📚 **ThesisClaw Processed Research Papers & Links**\n",
@@ -379,24 +378,12 @@ class TelegramBotClient:
             f"• 🟡 **Extends Thesis:** `{verdicts.get('extend', 0)}`",
             f"• 🔴 **Threatens Thesis:** `{verdicts.get('threaten', 0)}`",
             f"• ⚪ **Irrelevant:** `{verdicts.get('irrelevant', 0)}`\n",
-            f"🏛️ **Master Paper Gallery:**\n👉 {base_url}/papers/\n",
-            f"📱 **Mobile LAN URL:** `http://{lan_ip}:{settings.mcp_port}/papers/`\n",
+            f"🏛️ **[Master Paper Gallery]({base_url}/papers/)**\n👉 {base_url}/papers/\n",
         ]
 
-        inline_buttons: list[list[dict[str, Any]]] = []
-
-        if base_url.startswith("https://"):
-            inline_buttons.append([
-                {
-                    "text": "🏛️ Open Paper Gallery (In-App)",
-                    "web_app": {"url": f"{base_url}/papers/"},
-                },
-                {"text": "🌐 Browser", "url": f"{base_url}/papers/"},
-            ])
-        else:
-            inline_buttons.append(
-                [{"text": "🏛️ Open Master Paper Gallery", "url": f"{base_url}/papers/"}]
-            )
+        inline_buttons: list[list[dict[str, Any]]] = [
+            [{"text": "🏛️ Open Paper Gallery", "url": f"{base_url}/papers/"}]
+        ]
 
         if recent:
             lines.append("📄 **Interactive 4-Tab Paper Dashboards:**")
@@ -463,23 +450,14 @@ class TelegramBotClient:
 
         lines.extend([
             "",
-            f"🏛️ **Full Interactive Standings:**\n👉 {lb_url}",
+            f"🏛️ **[Full Interactive Standings]({lb_url})**\n👉 {lb_url}",
         ])
 
-        reply_markup = None
-        if lb_url.startswith("https://"):
-            reply_markup = {
-                "inline_keyboard": [
-                    [
-                        {"text": "🏆 Open Leaderboard (In-App)", "web_app": {"url": lb_url}},
-                        {"text": "🌐 Browser", "url": lb_url},
-                    ]
-                ]
-            }
-        else:
-            reply_markup = {
-                "inline_keyboard": [[{"text": "🏆 Open Leaderboard", "url": lb_url}]]
-            }
+        reply_markup = {
+            "inline_keyboard": [
+                [{"text": "🏆 Open Leaderboard", "url": lb_url}]
+            ]
+        }
 
         return "\n".join(lines), reply_markup
 
@@ -649,23 +627,12 @@ class TelegramBotClient:
                 f"✅ **Verified Quotes:** `{verified_pct}%` verbatim backed\n"
                 f"🔄 **Swap Symmetry Agreement:** `{swap_pct}%` consistent\n"
                 f"{ideas_preview}\n"
-                f"🌐 **Interactive 2-Column Fight Dashboard:**\n👉 {fight_url}"
+                f"🌐 **[Interactive 2-Column Fight Dashboard]({fight_url})**\n👉 {fight_url}"
             )
 
-            reply_markup = None
-            if fight_url.startswith("https://"):
-                reply_markup = {
-                    "inline_keyboard": [
-                        [
-                            {"text": "⚔️ Open Fight Dashboard (In-App)", "web_app": {"url": fight_url}},
-                            {"text": "🌐 Browser", "url": fight_url},
-                        ]
-                    ]
-                }
-            else:
-                reply_markup = {
-                    "inline_keyboard": [[{"text": "⚔️ Open Fight Dashboard", "url": fight_url}]]
-                }
+            reply_markup = {
+                "inline_keyboard": [[{"text": "⚔️ Open Fight Dashboard", "url": fight_url}]]
+            }
 
             await self.send_message(chat_id, msg, reply_markup=reply_markup)
         except Exception as exc:  # noqa: BLE001
@@ -706,9 +673,10 @@ class TelegramBotClient:
             f"• **Scores:** {label_a} `{mv.final_scores.get('fighter_a', 0.0):.1f}/5` • {label_b} `{mv.final_scores.get('fighter_b', 0.0):.1f}/5`\n"
             f"• **Verified Quotes:** `{round(mv.all_entries_verified_ratio * 100)}%`\n"
             f"• **Swap Agreement:** `{round(mv.swap_agreement * 100)}%`\n\n"
-            f"🔗 {fight_url}"
+            f"🌐 **[Interactive Fight Dashboard]({fight_url})**\n👉 {fight_url}"
         )
-        await self.send_message(chat_id, msg)
+        reply_markup = {"inline_keyboard": [[{"text": "⚔️ Open Fight Dashboard", "url": fight_url}]]}
+        await self.send_message(chat_id, msg, reply_markup=reply_markup)
         return "Verdict handled."
 
     async def handle_research_request(self, chat_id: int, topic: str | None = None) -> str:
@@ -1174,24 +1142,13 @@ class TelegramBotClient:
                     gen_file = build_paper_page(paper, v, res.get("pathfinder"))
                     domain = self.get_base_page_url()
                     page_url = f"{domain}/papers/{paper.arxiv_id}/"
-                    reply_parts.append(f"🌐 **Interactive 4-Tab Breakdown:**\n{page_url}")
+                    reply_parts.append(f"🌐 **[Interactive 4-Tab Breakdown]({page_url})**\n👉 {page_url}")
 
-                    # Build inline keyboard for Telegram
-                    if page_url.startswith("https://"):
-                        reply_markup = {
-                            "inline_keyboard": [
-                                [
-                                    {"text": "📖 Open Breakdown (In-App)", "web_app": {"url": page_url}},
-                                    {"text": "🌐 Browser", "url": page_url},
-                                ]
-                            ]
-                        }
-                    else:
-                        reply_markup = {
-                            "inline_keyboard": [
-                                [{"text": "🌐 Open in Browser", "url": page_url}]
-                            ]
-                        }
+                    reply_markup = {
+                        "inline_keyboard": [
+                            [{"text": "📖 Open Breakdown", "url": page_url}]
+                        ]
+                    }
                 except Exception as page_exc:  # noqa: BLE001
                     logger.warning("Could not generate paper webpage: %s", page_exc)
 

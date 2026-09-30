@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -824,5 +825,44 @@ async def test_telegram_fight_live_progress_updates(monkeypatch: pytest.MonkeyPa
     all_edit_text = " ".join(e["text"] for e in edit_payloads)
     assert "common ground" in all_edit_text.lower() or "R3" in all_edit_text
     assert "judge" in all_edit_text.lower() or "Nemotron" in all_edit_text
+
+
+@pytest.mark.asyncio
+async def test_telegram_notify_tunnel_url_clickable_links():
+    """Verify notify_tunnel_url formats clickable markdown links without backticks and provides universal url buttons."""
+    from thesisclaw.telegram.bot import TelegramBotClient
+
+    sent_payloads = []
+
+    async def mock_post(url, json=None, timeout=None):
+        if "sendMessage" in url:
+            sent_payloads.append(json)
+            return type("Resp", (), {"status_code": 200, "json": lambda self: {"ok": True, "result": {"message_id": 999}}})()
+        return type("Resp", (), {"status_code": 200, "json": lambda self: {"ok": True}})()
+
+    with patch("httpx.AsyncClient.post", side_effect=mock_post):
+        bot = TelegramBotClient(token="fake:token")
+        test_url = "https://thesis-arena.example.com"
+        await bot.notify_tunnel_url(chat_id=12345, tunnel_url=test_url)
+
+    assert len(sent_payloads) == 1
+    msg = sent_payloads[0]["text"]
+    reply_markup = sent_payloads[0]["reply_markup"]
+
+    # Must NOT enclose URLs in backticks (which disables auto-linking in Telegram)
+    assert f"`{test_url}`" not in msg
+    assert f"`{test_url}/leaderboard`" not in msg
+
+    # Must contain active Markdown links and raw URL lines
+    assert f"[Open Paper Gallery]({test_url}/papers/)" in msg
+    assert f"[Open Elo Leaderboard]({test_url}/leaderboard)" in msg
+    assert f"👉 {test_url}/papers/" in msg
+
+    # Must have inline keyboard with "url" buttons
+    buttons = reply_markup["inline_keyboard"]
+    flat_buttons = [b for row in buttons for b in row]
+    assert any(b.get("url") == f"{test_url}/papers/" for b in flat_buttons)
+    assert any(b.get("url") == f"{test_url}/leaderboard" for b in flat_buttons)
+
 
 

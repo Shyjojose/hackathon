@@ -32,6 +32,25 @@ def test_parse_url_ignores_non_tunnel_https():
     assert _parse_url_from_line("See https://example.com for details") is None
 
 
+# ── should_start_tunnel ───────────────────────────────────────────────────────
+
+
+def test_should_start_tunnel_conditions():
+    from thesisclaw.infra.tunnel import should_start_tunnel
+
+    # 1. Token present -> always True
+    assert should_start_tunnel("https://mycustom.domain.com", token="eyJh...") is True
+
+    # 2. Empty domain -> True (needs quick tunnel)
+    assert should_start_tunnel("", token="") is True
+
+    # 3. trycloudflare.com domain -> True (ephemeral, needs fresh quick tunnel)
+    assert should_start_tunnel("https://abc.trycloudflare.com", token="") is True
+
+    # 4. Custom domain without token -> False (external tunnel assumed)
+    assert should_start_tunnel("https://thesis.mycustomdomain.com", token="") is False
+
+
 # ── start_quick_tunnel — graceful degradation ─────────────────────────────────
 
 

@@ -27,23 +27,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Shutdown: Terminate the cloudflared subprocess cleanly.
     """
     # ── Startup ───────────────────────────────────────────────────────────────
-    existing = settings.mcp_tunnel_domain.split("#")[0].strip()
-    if existing:
-        logger.info(
-            "MCP_TUNNEL_DOMAIN already set to %s — skipping auto Quick Tunnel", existing
-        )
-    else:
-        from thesisclaw.infra.tunnel import start_quick_tunnel
+    from thesisclaw.infra.tunnel import should_start_tunnel, start_tunnel
 
+    existing = settings.mcp_tunnel_domain.split("#")[0].strip()
+    token = settings.cloudflare_tunnel_token.strip()
+
+    if should_start_tunnel(existing, token=token):
         loop = asyncio.get_running_loop()
-        url = await loop.run_in_executor(None, start_quick_tunnel)
+        url = await loop.run_in_executor(None, start_tunnel)
         if url:
             logger.info("🌐 Public ThesisClaw URL: %s", url)
         else:
-            logger.warning(
-                "No Cloudflare Tunnel URL — Telegram links will use LAN IP. "
-                "Install cloudflared (brew install cloudflared) to enable mobile access."
-            )
+            logger.info("🌐 Cloudflare Named Tunnel connected to Cloudflare Edge.")
+    else:
+        logger.info(
+            "MCP_TUNNEL_DOMAIN configured as external custom domain: %s — skipping auto-tunnel", existing
+        )
 
     yield  # ← server is running here
 

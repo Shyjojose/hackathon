@@ -1,14 +1,14 @@
 """
-ThesisClaw — Cloudflare Quick Tunnel launcher.
+ThesisClaw — Cloudflare Tunnel launcher.
 
-Spawns `cloudflared tunnel --url http://localhost:<port>` as a managed
-background subprocess, captures the assigned *.trycloudflare.com URL from
-its stdout, and hot-patches `settings.mcp_tunnel_domain` so that every
-subsequent call to `get_base_page_url()` in the Telegram bot returns the
-public HTTPS URL.
-
-No Cloudflare account or authentication needed — Quick Tunnels are free,
-have no bandwidth cap, and require only the `cloudflared` binary.
+Supports two operational modes:
+1. Named Tunnel (Token-based): If `CLOUDFLARE_TUNNEL_TOKEN` is configured in `.env`,
+   launches `cloudflared tunnel run --token <token>` in the background. This provides
+   a permanent, fixed HTTPS URL that never changes across restarts.
+2. Quick Tunnel (Zero-config): If no token is provided, launches
+   `cloudflared tunnel --url http://localhost:<port> --no-autoupdate` as a managed
+   subprocess, captures the assigned *.trycloudflare.com URL from stdout, and
+   hot-patches `settings.mcp_tunnel_domain` for the session.
 
 Install once with:  brew install cloudflared
 """
@@ -36,21 +36,34 @@ def _parse_url_from_line(line: str) -> str | None:
     return m.group() if m else None
 
 
-def start_quick_tunnel(port: int | None = None) -> str | None:
+def should_start_tunnel(domain: str, token: str = "") -> bool:
     """
-    Start a Cloudflare Quick Tunnel in background and return the public URL.
+    Return True if we should spawn cloudflared on startup.
 
-    Blocks for up to 20 seconds while waiting for cloudflared to print its URL.
-    Returns None with a warning log if cloudflared is not installed or the URL
-    cannot be determined within the timeout (graceful degradation — server still
-    works on LAN).
+    - If a named tunnel token is provided, always start the named tunnel.
+    - If domain is empty or contains trycloudflare.com, start a fresh quick tunnel
+      (because quick tunnels are ephemeral per-session and die on process exit).
+    - If a custom named domain is set WITHOUT a token, assume the user runs
+      cloudflared as a system service or external container.
+    """
+    if token.strip():
+        return True
+    clean = domain.split("#")[0].strip()
+    return bool(not clean or "trycloudflare.com" in clean)
+
+
+def start_tunnel(port: int | None = None) -> str | None:
+    """
+    Start Cloudflare Tunnel in background and return reachable public URL.
+
+    If settings.cloudflare_tunnel_token is set, runs a named tunnel.
+    Otherwise runs a quick tunnel and auto-discovers the trycloudflare.com URL.
     """
     global _proc
 
     from thesisclaw.config.settings import settings as _settings
 
     port = port or _settings.mcp_port
-
     cloudflared_bin = shutil.which("cloudflared")
     if not cloudflared_bin:
         logger.warning(
@@ -59,6 +72,50 @@ def start_quick_tunnel(port: int | None = None) -> str | None:
         )
         return None
 
+    token = _settings.cloudflare_tunnel_token.strip()
+
+    if token:
+        # ── Mode 1: Named Persistent Tunnel ───────────────────────────────────
+        cmd = [
+            cloudflared_bin,
+            "tunnel",
+            "run",
+            "--token", token,
+        ]
+        logger.info("Starting Cloudflare Named Tunnel with token...")
+        _proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+        connected_event = threading.Event()
+
+        def _named_reader() -> None:
+            assert _proc and _proc.stdout
+            for raw_line in _proc.stdout:
+                line = raw_line.rstrip()
+                logger.debug("[cloudflared-named] %s", line)
+                if "Registered tunnel connection" in line or "Connection" in line:
+                    connected_event.set()
+
+        threading.Thread(target=_named_reader, daemon=True, name="cf-named-reader").start()
+        connected_event.wait(timeout=10)
+
+        configured_domain = _settings.mcp_tunnel_domain.split("#")[0].strip()
+        if configured_domain and not configured_domain.startswith(("http://", "https://")):
+            configured_domain = f"https://{configured_domain}"
+
+        if configured_domain and "trycloudflare.com" not in configured_domain:
+            logger.info("✅ Cloudflare Named Tunnel connected → %s", configured_domain)
+            return configured_domain
+
+        logger.info("✅ Cloudflare Named Tunnel connected to Cloudflare Edge.")
+        return configured_domain or None
+
+    # ── Mode 2: Quick Tunnel (ephemeral trycloudflare.com) ───────────────────
     cmd = [
         cloudflared_bin,
         "tunnel",
@@ -70,7 +127,7 @@ def start_quick_tunnel(port: int | None = None) -> str | None:
     _proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,   # merge stderr so we catch the URL on either stream
+        stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
     )
@@ -78,7 +135,7 @@ def start_quick_tunnel(port: int | None = None) -> str | None:
     url_event = threading.Event()
     discovered: list[str] = []
 
-    def _reader() -> None:
+    def _quick_reader() -> None:
         assert _proc and _proc.stdout
         for raw_line in _proc.stdout:
             line = raw_line.rstrip()
@@ -88,7 +145,7 @@ def start_quick_tunnel(port: int | None = None) -> str | None:
                 discovered.append(url)
                 url_event.set()
 
-    threading.Thread(target=_reader, daemon=True, name="cloudflared-reader").start()
+    threading.Thread(target=_quick_reader, daemon=True, name="cloudflared-reader").start()
 
     found = url_event.wait(timeout=20)
     if not found or not discovered:
@@ -99,18 +156,20 @@ def start_quick_tunnel(port: int | None = None) -> str | None:
         return None
 
     public_url = discovered[0].rstrip("/")
-    logger.info(
-        "✅ Cloudflare Quick Tunnel active: %s → http://localhost:%d",
-        public_url, port,
-    )
+    logger.info("✅ Cloudflare Quick Tunnel active: %s → http://localhost:%d", public_url, port)
 
     # Hot-patch settings so get_base_page_url() resolves immediately
     _settings.mcp_tunnel_domain = public_url
 
-    # Persist the URL to .env so it survives uvicorn hot-reloads
+    # Persist the URL to .env for this session
     _update_env_file(public_url)
 
     return public_url
+
+
+def start_quick_tunnel(port: int | None = None) -> str | None:
+    """Backward-compatible alias for start_tunnel."""
+    return start_tunnel(port=port)
 
 
 def stop_tunnel() -> None:
@@ -130,7 +189,7 @@ def stop_tunnel() -> None:
 def _update_env_file(url: str) -> None:
     """
     Write `MCP_TUNNEL_DOMAIN=<url>` into `.env` without touching other lines.
-    If the key is not present, it is appended.  Idempotent.
+    If the key is not present, it is appended. Idempotent.
     """
     env_path = Path(".env")
     if not env_path.exists():

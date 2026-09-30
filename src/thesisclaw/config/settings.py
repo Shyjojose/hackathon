@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     mcp_host: str = "0.0.0.0"
     mcp_port: int = 8080
     mcp_tunnel_domain: str = ""
+    cloudflare_tunnel_token: str = ""
 
     # ── GitHub ────────────────────────────────────────────────────────────────
     github_token: str = ""

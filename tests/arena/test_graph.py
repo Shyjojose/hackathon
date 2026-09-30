@@ -281,3 +281,35 @@ def test_injection_canary_fighter_node(monkeypatch, tmp_path):
         assert entry.get("entry_type") in ("claim", "concession", "idea", "followup")
         # No approval-related text in the entry text
         assert "approve" not in entry.get("text", "").lower()
+
+
+def test_compiled_graph_parallel_openings_no_concurrent_update_error(monkeypatch, tmp_path):
+    """
+    Execute the entire compiled LangGraph arena_graph with parallel openings.
+    Ensures that fighter_a_node and fighter_b_node merging at cross_exam does not
+    throw 'At key round: Can receive only one value per step'.
+    """
+    graph_mod, mem_mod = _patch_fights_dir(monkeypatch, tmp_path)
+    mem_mod.init_arena_db()
+
+    state = graph_mod._initial_state(
+        "f-full-e2e",
+        Fighter(kind=FighterKind.GROUND, doc_id="ground"),
+        Fighter(kind=FighterKind.PAPER, doc_id="2608.12345"),
+        {"text": "Ground document on edge ASR INT4 quantization.", "sections": {}},
+        {"text": "Paper document on speculative decoding ASR.", "sections": {}},
+    )
+
+    with _make_null_llm_patcher():
+        final_state = graph_mod.arena_graph.invoke(
+            state,
+            {"configurable": {"thread_id": "f-full-e2e"}},
+        )
+
+    assert final_state is not None
+    assert "final_verdict" in final_state
+    assert final_state["final_verdict"] is not None
+    assert final_state["round"] >= 1
+    assert len(final_state["entries_a"]) >= 1
+    assert len(final_state["entries_b"]) >= 1
+

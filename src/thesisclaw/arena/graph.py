@@ -102,7 +102,8 @@ def _get_llm(model: str) -> Any | None:
         return None
 
 
-# ── State schema ──────────────────────────────────────────────────────────────
+def _max_round(current: int, update: int) -> int:
+    return max(current, update)
 
 
 class ArenaState(TypedDict):
@@ -115,7 +116,7 @@ class ArenaState(TypedDict):
     entries_a: Annotated[list[dict], operator.add]  # MemoryEntry.model_dump() list
     entries_b: Annotated[list[dict], operator.add]
     entries_mod: Annotated[list[dict], operator.add]
-    round: int
+    round: Annotated[int, _max_round]
     token_used: int
     token_cap: int
     verified: bool
@@ -383,7 +384,7 @@ def fighter_a_node(state: ArenaState) -> dict:
 
     entries = _llm_fighter_turn(llm, system_prompt, user_msg, state["fight_id"], 1, "fighter_a", fighter.doc_id)
     saved = write_entries(entries)
-    return {"entries_a": [e.model_dump() for e in saved], "round": 1}
+    return {"entries_a": [e.model_dump() for e in saved]}
 
 
 def fighter_b_node(state: ArenaState) -> dict:
@@ -406,7 +407,7 @@ def fighter_b_node(state: ArenaState) -> dict:
 
     entries = _llm_fighter_turn(llm, system_prompt, user_msg, state["fight_id"], 1, "fighter_b", fighter.doc_id)
     saved = write_entries(entries)
-    return {"entries_b": [e.model_dump() for e in saved], "round": 1}
+    return {"entries_b": [e.model_dump() for e in saved]}
 
 
 def cross_exam(state: ArenaState) -> dict:

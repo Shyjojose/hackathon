@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -863,6 +864,23 @@ async def test_telegram_notify_tunnel_url_clickable_links():
     flat_buttons = [b for row in buttons for b in row]
     assert any(b.get("url") == f"{test_url}/papers/" for b in flat_buttons)
     assert any(b.get("url") == f"{test_url}/leaderboard" for b in flat_buttons)
+
+
+def test_dynamic_tunnel_domain_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify get_base_page_url dynamically picks up .env changes and strips trailing slashes/prefixes."""
+    env = tmp_path / ".env"
+    env.write_text("MCP_TUNNEL_DOMAIN=https://first-tunnel.trycloudflare.com/\n")
+    monkeypatch.chdir(tmp_path)
+
+    bot = TelegramBotClient(token="fake:token")
+    # First call reads first-tunnel and strips trailing slash
+    assert bot.get_base_page_url() == "https://first-tunnel.trycloudflare.com"
+
+    # Cloudflare restarts and writes a new URL to .env on the fly
+    env.write_text("MCP_TUNNEL_DOMAIN=MCP_TUNNEL_DOMAIN=https://second-fresh-tunnel.trycloudflare.com/\n")
+    # Subsequent call immediately detects the new URL without restarting the bot
+    assert bot.get_base_page_url() == "https://second-fresh-tunnel.trycloudflare.com"
+
 
 
 

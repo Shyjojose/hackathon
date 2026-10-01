@@ -130,12 +130,33 @@ class TelegramBotClient:
         return user_id in allowed
 
     def get_base_page_url(self) -> str:
-        """Resolve current reachable URL for paper dashboards (tunnel or mobile Wi-Fi LAN IP)."""
-        raw_domain = settings.mcp_tunnel_domain.split("#")[0].strip()
-        if raw_domain:
-            if not raw_domain.startswith(("http://", "https://")):
-                return f"https://{raw_domain}"
-            return raw_domain
+        """Resolve current reachable URL for paper dashboards (dynamically reads .env)."""
+        tunnel_url = ""
+        env_file = Path(".env")
+        if env_file.exists():
+            try:
+                for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+                    clean_line = raw_line.strip()
+                    if clean_line.startswith("MCP_TUNNEL_DOMAIN="):
+                        val = clean_line.split("=", 1)[1].strip().strip('"').strip("'")
+                        if "MCP_TUNNEL_DOMAIN=" in val:
+                            val = val.split("MCP_TUNNEL_DOMAIN=")[-1].strip()
+                        tunnel_url = val.rstrip("/")
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Could not read .env for dynamic tunnel domain: %s", e)
+
+        if not tunnel_url:
+            raw = settings.mcp_tunnel_domain.split("#")[0].strip()
+            if "MCP_TUNNEL_DOMAIN=" in raw:
+                raw = raw.split("MCP_TUNNEL_DOMAIN=")[-1].strip()
+            tunnel_url = raw.rstrip("/")
+
+        if tunnel_url:
+            if not tunnel_url.startswith(("http://", "https://")):
+                tunnel_url = f"https://{tunnel_url}"
+            settings.mcp_tunnel_domain = tunnel_url
+            return tunnel_url
+
         host = settings.mcp_host
         if host in ("127.0.0.1", "0.0.0.0", "localhost"):
             lan_ip = get_lan_ip()
@@ -299,7 +320,7 @@ class TelegramBotClient:
             reason = p.get("reason", "No reason recorded.")
             lines.append(f"{i}. {badge} **{title}** (arXiv:{aid})\n   _Reason:_ {reason}")
             if verd != "irrelevant":
-                lines.append(f"   🔗 {base_url}/papers/{aid}/")
+                lines.append(f"   🔗 [{title}]({base_url}/papers/{aid}/)\n   👉 {base_url}/papers/{aid}/")
 
         return "\n".join(lines)
 
@@ -349,16 +370,13 @@ class TelegramBotClient:
             reason = p.get("reason", "Validates benchmark claims.")
             p_url = f"{base_url}/papers/{aid}/"
             lines.append(
-                f"{i}. {badge} **{title}** (arXiv:{aid})\n   • **Finding:** {reason}\n   • 🔗 {p_url}"
+                f"{i}. {badge} **[{title}]({p_url})** (arXiv:{aid})\n   • **Finding:** {reason}\n   • 👉 {p_url}"
             )
 
             if i <= 4:
                 short_title = title[:24] + "..." if len(title) > 24 else title
                 btn_text = f"{badge[:2]} {aid}: {short_title}"
-                if base_url.startswith("https://"):
-                    inline_buttons.append([{"text": btn_text, "web_app": {"url": p_url}}])
-                else:
-                    inline_buttons.append([{"text": btn_text, "url": p_url}])
+                inline_buttons.append([{"text": f"📖 {btn_text}", "url": p_url}])
 
         reply_markup = {"inline_keyboard": inline_buttons} if inline_buttons else None
         return "\n".join(lines), reply_markup

@@ -169,8 +169,9 @@ The worker coordinates 5 distinct subagents defined in [`src/thesisclaw/agent/su
 
 ## 🎥 Demo Videos
 
-- [Telegram bot: similarity check before paper fighting](https://youtu.be/9rdW7PG6sxs)
-- [Paper Arena: paper fight after similarity approval](https://youtu.be/kLTf1bBsLxk)
+[![Telegram bot: similarity check before paper fighting](https://img.youtube.com/vi/9rdW7PG6sxs/hqdefault.jpg)](https://youtu.be/9rdW7PG6sxs)
+
+[![Paper Arena: paper fight after similarity approval](https://img.youtube.com/vi/kLTf1bBsLxk/hqdefault.jpg)](https://youtu.be/kLTf1bBsLxk)
 
 ## ⚔️ Paper Arena (Agent Wars Mode)
 

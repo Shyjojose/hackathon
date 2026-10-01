@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     default_model: str = "nvidia/llama-3.1-nemotron-70b-instruct"
     critic_model: str = "nvidia/nemotron-4-340b-instruct"
     prefilter_model: str = "meta/llama-3.1-8b-instruct"
-    embedding_model: str = "nvidia/nv-embedqa-e5-v5"
+    embedding_model: str = "nvidia/nemotron-3-embed-1b"
 
     # ── Telegram ──────────────────────────────────────────────────────────────
     telegram_bot_token: str = ""

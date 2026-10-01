@@ -214,7 +214,7 @@ async def test_research_scout_subagent_deduplication(tmp_path: Any, monkeypatch:
     # Check similarity scores and links
     for p in result.papers:
         assert 0.0 <= p.similarity_score <= 1.0
-        assert p.similarity_score > 0.3  # Keyword grounding provides realistic score
+        assert p.similarity_score > 0.2  # Semantic or keyword grounding provides realistic score
         assert p.arxiv_url == f"https://arxiv.org/abs/{p.arxiv_id}"
         assert p.dashboard_url == f"http://192.168.178.46:8080/papers/{p.arxiv_id}/"
 

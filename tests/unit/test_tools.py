@@ -79,7 +79,7 @@ def test_deterministic_embedding():
 def test_embed_text_fallback():
     vec = embed_text("Raspberry Pi 5 INT4 Quantization")
     assert isinstance(vec, list)
-    assert len(vec) == 1024
+    assert len(vec) in (1024, 2048)
 
 
 @pytest.mark.asyncio

@@ -167,6 +167,11 @@ The worker coordinates 5 distinct subagents defined in [`src/thesisclaw/agent/su
 
 ---
 
+## 🎥 Demo Videos
+
+- [Telegram bot: similarity check before paper fighting](https://youtu.be/9rdW7PG6sxs)
+- [Paper Arena: paper fight after similarity approval](https://youtu.be/kLTf1bBsLxk)
+
 ## ⚔️ Paper Arena (Agent Wars Mode)
 
 **Paper Arena** (`src/thesisclaw/arena/`) transforms static research preprints into adversarial debate agents that battle against the student thesis anchor or head-to-head in a structured, moderated LangGraph ring.
